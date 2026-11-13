@@ -29,7 +29,8 @@ COPY --from=build --chown=inventory:inventory /workspace/target/extracted/applic
 USER inventory
 EXPOSE 8080
 
-ENV JAVA_TOOL_OPTIONS="-XX:MaxRAMPercentage=75.0 -XX:+ExitOnOutOfMemoryError"
+ENV SERVER_PORT=8080 \
+    JAVA_TOOL_OPTIONS="-XX:MaxRAMPercentage=75.0 -XX:+ExitOnOutOfMemoryError"
 
 HEALTHCHECK --interval=15s --timeout=3s --start-period=40s --retries=3 \
     CMD wget -q -O /dev/null http://localhost:8080/actuator/health || exit 1

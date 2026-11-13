@@ -51,7 +51,7 @@ spring:
       fail-fast: false
 
 server:
-  port: ${SERVER_PORT:8080}
+  port: ${SERVER_PORT:8081}  # 8080 is taken by kafka-ui in ecommerce-infra
   shutdown: graceful
 
 management:
