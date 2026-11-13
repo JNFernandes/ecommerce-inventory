@@ -32,6 +32,14 @@ import org.springframework.transaction.support.TransactionOperations;
  * <p>Write flow (constitution Principle III, research R3): one transaction saves the stock changes,
  * the reservation, the outcome message and the processed-event record; only after it commits is the
  * outcome published. The caller acknowledges the offset after this method returns.
+ *
+ * <p>Concurrency (ADR 0002): stock rows are locked in ascending product id order, so concurrent orders
+ * never oversell and never deadlock. Two events for the same order processed at the same time (from
+ * different partitions) cannot both create a reservation: the loser's insert violates the unique
+ * {@code reservations.order_id} constraint at commit, its whole transaction (including any stock
+ * change) rolls back, and the exception goes to the container error handler. On retry the loser sees
+ * the winner's reservation and is ignored as a duplicate order. Proven by
+ * {@code ConcurrentReservationIT}.
  */
 @Service
 public class ReserveStockService {

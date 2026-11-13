@@ -178,12 +178,12 @@ duplicate order id does not create a second reservation.
 
 ### Tests for User Story 3
 
-- [ ] T048 [P] [US3] Write `T/application/ConcurrentReservationIT.java` (extends `AbstractPostgresIT`, real `ReserveStockService`, `@MockitoBean OutboundMessagePublisher` recording calls): should reserve exactly 5 of 20 concurrent single-unit orders for a 5-unit product, reject 15 with `insufficient stock`, end at 0 and publish 20 outcomes (run 20 tasks released together with a `CountDownLatch` on a fixed thread pool; repeat 3 times with fresh data) (SC-002); should complete two concurrent orders listing SKU-001/SKU-002 in opposite order without deadlock, repeated 50 times, within a bounded time (FR-011); should never let any `available_quantity` go below 0 (query after each run)
-- [ ] T049 [P] [US3] Add to `T/application/ConcurrentReservationIT.java`: two concurrent commands with different event ids for the same order id → exactly one reservation row and stock decreased once; the losing call fails with a data-integrity exception (to be retried by the container, see T058)
+- [X] T048 [P] [US3] Write `T/application/ConcurrentReservationIT.java` (extends `AbstractPostgresIT`, real `ReserveStockService`, `@MockitoBean OutboundMessagePublisher` recording calls): should reserve exactly 5 of 20 concurrent single-unit orders for a 5-unit product, reject 15 with `insufficient stock`, end at 0 and publish 20 outcomes (run 20 tasks released together with a `CountDownLatch` on a fixed thread pool; repeat 3 times with fresh data) (SC-002); should complete two concurrent orders listing SKU-001/SKU-002 in opposite order without deadlock, repeated 50 times, within a bounded time (FR-011); should never let any `available_quantity` go below 0 (query after each run)
+- [X] T049 [P] [US3] Add to `T/application/ConcurrentReservationIT.java`: two concurrent commands with different event ids for the same order id → exactly one reservation row and stock decreased once; the losing call fails with a data-integrity exception (to be retried by the container, see T058)
 
 ### Implementation for User Story 3
 
-- [ ] T050 [US3] Make any fix the tests reveal, without changing ADR 0002's strategy: lock ordering in `StockItemRepositoryAdapter`, the `SET LOCAL lock_timeout`, and that the transaction (not the caller) sees `DataIntegrityViolationException` on `reservations.order_id` so the whole transaction rolls back. Document the duplicate-order race outcome in a Javadoc paragraph on `M/application/ReserveStockService.java`
+- [X] T050 [US3] Make any fix the tests reveal, without changing ADR 0002's strategy: lock ordering in `StockItemRepositoryAdapter`, the `SET LOCAL lock_timeout`, and that the transaction (not the caller) sees `DataIntegrityViolationException` on `reservations.order_id` so the whole transaction rolls back. Document the duplicate-order race outcome in a Javadoc paragraph on `M/application/ReserveStockService.java`
 
 **Checkpoint**: Stories 1–3 work; concurrency proven on real PostgreSQL.
 
