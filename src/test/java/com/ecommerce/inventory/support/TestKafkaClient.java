@@ -14,13 +14,18 @@ import java.util.UUID;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import org.apache.kafka.clients.admin.Admin;
+import org.apache.kafka.clients.admin.AdminClientConfig;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.ConsumerRecords;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
+import org.apache.kafka.clients.consumer.OffsetAndMetadata;
 import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.clients.producer.ProducerRecord;
+import org.apache.kafka.clients.producer.RecordMetadata;
+import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.serialization.StringDeserializer;
 import org.apache.kafka.common.serialization.StringSerializer;
 
@@ -46,19 +51,43 @@ public final class TestKafkaClient {
      * @param topic topic
      * @param key message key
      * @param value raw message value
+     * @return partition and offset the record was written to
      */
-    public void send(String topic, String key, String value) {
+    public RecordMetadata send(String topic, String key, String value) {
         Map<String, Object> config = Map.of(
                 ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers,
                 ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class,
                 ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, StringSerializer.class);
         try (KafkaProducer<String, String> producer = new KafkaProducer<>(config)) {
-            producer.send(new ProducerRecord<>(topic, key, value)).get(10, TimeUnit.SECONDS);
+            return producer.send(new ProducerRecord<>(topic, key, value)).get(10, TimeUnit.SECONDS);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new IllegalStateException("Interrupted while sending a test message", e);
         } catch (ExecutionException | TimeoutException e) {
             throw new IllegalStateException("Could not send a test message to " + topic, e);
+        }
+    }
+
+    /**
+     * Reads the offset a consumer group has committed for a partition.
+     *
+     * @param groupId consumer group
+     * @param topic topic
+     * @param partition partition
+     * @return the committed offset, or -1 when nothing is committed
+     */
+    public long committedOffset(String groupId, String topic, int partition) {
+        try (Admin admin = Admin.create(Map.of(AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers))) {
+            OffsetAndMetadata committed = admin.listConsumerGroupOffsets(groupId)
+                    .partitionsToOffsetAndMetadata()
+                    .get(10, TimeUnit.SECONDS)
+                    .get(new TopicPartition(topic, partition));
+            return committed == null ? -1 : committed.offset();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("Interrupted while reading committed offsets", e);
+        } catch (ExecutionException | TimeoutException e) {
+            throw new IllegalStateException("Could not read committed offsets of " + groupId, e);
         }
     }
 

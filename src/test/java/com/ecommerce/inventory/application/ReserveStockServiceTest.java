@@ -5,12 +5,15 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.ArgumentMatchers.anySet;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.ecommerce.inventory.application.port.OutboundDeadLetterRepository;
 import com.ecommerce.inventory.application.port.OutboundMessage;
 import com.ecommerce.inventory.application.port.OutboundMessageFactory;
 import com.ecommerce.inventory.application.port.OutboundMessagePublisher;
@@ -18,6 +21,7 @@ import com.ecommerce.inventory.application.port.OutcomeMessageRepository;
 import com.ecommerce.inventory.application.port.ProcessedEvent;
 import com.ecommerce.inventory.application.port.ProcessedEventRepository;
 import com.ecommerce.inventory.application.port.ProcessedOutcome;
+import com.ecommerce.inventory.application.port.PublishFailedException;
 import com.ecommerce.inventory.domain.event.StockRejected;
 import com.ecommerce.inventory.domain.event.StockReserved;
 import com.ecommerce.inventory.domain.model.OrderId;
@@ -32,6 +36,7 @@ import com.ecommerce.inventory.domain.model.StockItem;
 import com.ecommerce.inventory.domain.repository.ReservationRepository;
 import com.ecommerce.inventory.domain.repository.StockItemRepository;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
@@ -63,6 +68,7 @@ class ReserveStockServiceTest {
     private static final String TOPIC = "orders.order-placed";
     private static final OutboundMessage MESSAGE =
             new OutboundMessage(UUID.randomUUID(), "inventory.stock-reserved", "key", "{}");
+    private static final Duration FIRST_RETRY_DELAY = Duration.ofSeconds(30);
 
     @Mock
     private StockItemRepository stockItems;
@@ -82,6 +88,9 @@ class ReserveStockServiceTest {
     @Mock
     private OutboundMessagePublisher publisher;
 
+    @Mock
+    private OutboundDeadLetterRepository outboundDeadLetters;
+
     @Captor
     private ArgumentCaptor<Set<ProductId>> lockedIds;
 
@@ -98,8 +107,75 @@ class ReserveStockServiceTest {
                 processedEvents,
                 messageFactory,
                 publisher,
+                outboundDeadLetters,
+                new DeadLetterPolicy(FIRST_RETRY_DELAY),
                 new JournalingTransactions(journal),
                 Clock.fixed(NOW, ZoneOffset.UTC));
+    }
+
+    @Test
+    @DisplayName("should store the outcome as an outbound dead letter and still succeed when publishing fails")
+    void shouldDeadLetterFailedPublish() {
+        givenStock("SKU-001", 10);
+        when(messageFactory.create(any(StockReserved.class))).thenReturn(MESSAGE);
+        doThrow(new PublishFailedException("Could not publish", new IllegalStateException("broker down")))
+                .when(publisher)
+                .publish(MESSAGE);
+
+        ReserveStockOutcome outcome = service.reserve(command(line("SKU-001", 3)));
+
+        assertThat(outcome).isInstanceOf(ReserveStockOutcome.Decided.class);
+        verify(outboundDeadLetters)
+                .recordFailure(
+                        eq(MESSAGE),
+                        argThat(error -> error.contains("Could not publish") && error.contains("broker down")),
+                        eq(NOW.plus(FIRST_RETRY_DELAY)));
+    }
+
+    @Test
+    @DisplayName("should log and not throw when storing the outbound dead letter also fails")
+    void shouldNotThrowWhenDeadLetterStoreFails() {
+        givenStock("SKU-001", 10);
+        when(messageFactory.create(any(StockReserved.class))).thenReturn(MESSAGE);
+        doThrow(new PublishFailedException("Could not publish", new IllegalStateException("broker down")))
+                .when(publisher)
+                .publish(MESSAGE);
+        doThrow(new IllegalStateException("database down"))
+                .when(outboundDeadLetters)
+                .recordFailure(any(), any(), any());
+
+        ReserveStockOutcome outcome = service.reserve(command(line("SKU-001", 3)));
+
+        assertThat(outcome).isInstanceOf(ReserveStockOutcome.Decided.class);
+    }
+
+    @Test
+    @DisplayName("should dead-letter a failing republish of a redelivered event")
+    void shouldDeadLetterFailedRepublish() {
+        ReservationId existing = ReservationId.newId();
+        when(processedEvents.find(EVENT_ID))
+                .thenReturn(Optional.of(
+                        new ProcessedEvent(EVENT_ID, TOPIC, ProcessedOutcome.RESERVATION_DECIDED, existing, NOW)));
+        when(outcomeMessages.findByReservationId(existing)).thenReturn(Optional.of(MESSAGE));
+        doThrow(new PublishFailedException("Could not publish", new IllegalStateException("broker down")))
+                .when(publisher)
+                .publish(MESSAGE);
+
+        ReserveStockOutcome outcome = service.reserve(command(line("SKU-001", 3)));
+
+        assertThat(outcome).isEqualTo(new ReserveStockOutcome.Redelivered(existing));
+        verify(outboundDeadLetters).recordFailure(eq(MESSAGE), any(), eq(NOW.plus(FIRST_RETRY_DELAY)));
+    }
+
+    @Test
+    @DisplayName("should not dead-letter anything when publishing succeeds")
+    void shouldNotDeadLetterOnSuccess() {
+        givenStock("SKU-001", 10);
+        when(messageFactory.create(any(StockReserved.class))).thenReturn(MESSAGE);
+
+        service.reserve(command(line("SKU-001", 3)));
+
+        verify(outboundDeadLetters, never()).recordFailure(any(), any(), any());
     }
 
     @Test

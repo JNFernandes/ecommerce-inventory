@@ -1,5 +1,6 @@
 package com.ecommerce.inventory.application;
 
+import com.ecommerce.inventory.application.port.OutboundDeadLetterRepository;
 import com.ecommerce.inventory.application.port.OutboundMessage;
 import com.ecommerce.inventory.application.port.OutboundMessageFactory;
 import com.ecommerce.inventory.application.port.OutboundMessagePublisher;
@@ -7,6 +8,7 @@ import com.ecommerce.inventory.application.port.OutcomeMessageRepository;
 import com.ecommerce.inventory.application.port.ProcessedEvent;
 import com.ecommerce.inventory.application.port.ProcessedEventRepository;
 import com.ecommerce.inventory.application.port.ProcessedOutcome;
+import com.ecommerce.inventory.application.port.PublishFailedException;
 import com.ecommerce.inventory.domain.event.InventoryDomainEvent;
 import com.ecommerce.inventory.domain.model.ProductId;
 import com.ecommerce.inventory.domain.model.RequestedItems;
@@ -53,6 +55,8 @@ public class ReserveStockService {
     private final ProcessedEventRepository processedEvents;
     private final OutboundMessageFactory messageFactory;
     private final OutboundMessagePublisher publisher;
+    private final OutboundDeadLetterRepository outboundDeadLetters;
+    private final DeadLetterPolicy deadLetterPolicy;
     private final TransactionOperations transactions;
     private final Clock clock;
 
@@ -65,6 +69,8 @@ public class ReserveStockService {
      * @param processedEvents processed inbound events
      * @param messageFactory maps domain events to outbound messages
      * @param publisher publishes outbound messages
+     * @param outboundDeadLetters stores messages whose publish failed
+     * @param deadLetterPolicy when a failed message may be retried
      * @param transactions transaction boundary
      * @param clock source of decision times
      */
@@ -75,6 +81,8 @@ public class ReserveStockService {
             ProcessedEventRepository processedEvents,
             OutboundMessageFactory messageFactory,
             OutboundMessagePublisher publisher,
+            OutboundDeadLetterRepository outboundDeadLetters,
+            DeadLetterPolicy deadLetterPolicy,
             TransactionOperations transactions,
             Clock clock) {
         this.stockItems = stockItems;
@@ -83,6 +91,8 @@ public class ReserveStockService {
         this.processedEvents = processedEvents;
         this.messageFactory = messageFactory;
         this.publisher = publisher;
+        this.outboundDeadLetters = outboundDeadLetters;
+        this.deadLetterPolicy = deadLetterPolicy;
         this.transactions = transactions;
         this.clock = clock;
     }
@@ -97,7 +107,7 @@ public class ReserveStockService {
         Step step = Objects.requireNonNull(transactions.execute(status -> handleInTransaction(command)));
         return switch (step) {
             case Decision decision -> {
-                publisher.publish(decision.message());
+                publishOrDeadLetter(decision.message(), command);
                 LOG.info(
                         "Order {} handled: reservation {} {}, inbound event {}, published event {} to {}",
                         command.orderId(),
@@ -109,7 +119,7 @@ public class ReserveStockService {
                 yield new ReserveStockOutcome.Decided(decision.reservationId(), decision.status());
             }
             case Redelivery redelivery -> {
-                publisher.publish(redelivery.message());
+                publishOrDeadLetter(redelivery.message(), command);
                 LOG.info(
                         "Redelivered event {} for order {} already processed: republished event {} of reservation {}",
                         command.eventId(),
@@ -120,6 +130,45 @@ public class ReserveStockService {
             }
             case Ignored ignored -> new ReserveStockOutcome.DuplicateOrderIgnored(ignored.existingReservationId());
         };
+    }
+
+    /**
+     * Publishes after the commit. A failure never undoes the committed state: the message is stored as
+     * an outbound dead letter in its own transaction for the retry worker (FR-023, constitution v1.0.1
+     * Principle III). If even that fails, the full message is logged for manual recovery.
+     */
+    private void publishOrDeadLetter(OutboundMessage message, ReserveStockCommand command) {
+        try {
+            publisher.publish(message);
+        } catch (PublishFailedException e) {
+            LOG.error(
+                    "Publishing event {} to {} with key {} for order {} failed; storing it as an outbound dead letter",
+                    message.eventId(),
+                    message.topic(),
+                    message.key(),
+                    command.orderId(),
+                    e);
+            try {
+                outboundDeadLetters.recordFailure(
+                        message, describe(e), clock.instant().plus(deadLetterPolicy.firstRetryDelay()));
+            } catch (RuntimeException storeFailure) {
+                LOG.error(
+                        "Could not dead-letter event {}; recover manually: topic={} key={} payload={}",
+                        message.eventId(),
+                        message.topic(),
+                        message.key(),
+                        message.payload(),
+                        storeFailure);
+            }
+        }
+    }
+
+    private static String describe(Exception failure) {
+        StringBuilder description = new StringBuilder(failure.toString());
+        for (Throwable cause = failure.getCause(); cause != null; cause = cause.getCause()) {
+            description.append(" | caused by ").append(cause);
+        }
+        return description.toString();
     }
 
     /**

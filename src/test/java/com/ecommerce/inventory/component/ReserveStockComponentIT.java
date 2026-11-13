@@ -3,9 +3,11 @@ package com.ecommerce.inventory.component;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
+import com.ecommerce.inventory.application.port.PublishFailedException;
 import com.ecommerce.inventory.messaging.OrderPlacedListener;
 import com.ecommerce.inventory.support.AbstractComponentIT;
 import com.ecommerce.inventory.support.TestKafkaClient;
@@ -16,6 +18,7 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
+import org.apache.kafka.clients.producer.RecordMetadata;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -207,6 +210,117 @@ class ReserveStockComponentIT extends AbstractComponentIT {
         assertThat(kafka().recordsForOrder(STOCK_REJECTED, orderId)).isEmpty();
         assertThat(stock().available("SKU-001")).contains(7);
         assertThat(count("reservations")).isEqualTo(1);
+        assertThat(count("consumed_dead_letters")).isZero();
+        verify(reserveStockService(), times(2))
+                .reserve(argThat(command -> command.orderId().value().equals(orderId)));
+    }
+
+    @Test
+    @DisplayName(
+            "should dead-letter an invalid message on the first attempt and keep processing the partition (SC-006)")
+    void shouldDeadLetterInvalidMessageAndContinue() {
+        stock().given("SKU-001", 10);
+        UUID orderId = UUID.randomUUID();
+        String key = UUID.randomUUID().toString();
+
+        RecordMetadata invalid = kafka().send(ORDER_PLACED, key, "{\"not\":\"an order\"}");
+        kafka().send(ORDER_PLACED, key, orderPlaced(UUID.randomUUID(), orderId, line("SKU-001", 1)));
+        kafka().awaitRecordsForOrder(STOCK_RESERVED, orderId, 1, Duration.ofSeconds(10));
+
+        Map<String, Object> deadLetter = jdbc().queryForMap(
+                        "select * from consumed_dead_letters where partition = ? and record_offset = ?",
+                        invalid.partition(),
+                        invalid.offset());
+        assertThat(deadLetter.get("payload")).isEqualTo("{\"not\":\"an order\"}");
+        assertThat(deadLetter.get("message_key")).isEqualTo(key);
+        assertThat(deadLetter.get("attempts")).isEqualTo(1);
+        assertThat((String) deadLetter.get("error")).contains("InvalidMessageException");
+        assertThat(stock().available("SKU-001")).contains(9);
+    }
+
+    @Test
+    @DisplayName("should commit the offset of a dead-lettered message that is the last one on its partition")
+    void shouldCommitOffsetOfLastDeadLetteredMessage() {
+        RecordMetadata invalid = kafka().send(ORDER_PLACED, UUID.randomUUID().toString(), "not json");
+
+        await().atMost(Duration.ofSeconds(10))
+                .untilAsserted(() -> assertThat(
+                                kafka().committedOffset("inventory-service", ORDER_PLACED, invalid.partition()))
+                        .isEqualTo(invalid.offset() + 1));
+        assertThat(count("consumed_dead_letters")).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("should keep the reservation and store a PENDING outbound dead letter when publishing fails (SC-007)")
+    void shouldDeadLetterFailedPublish() {
+        stock().given("SKU-001", 10);
+        UUID orderId = UUID.randomUUID();
+        doThrow(new PublishFailedException("Could not publish", new IllegalStateException("broker down")))
+                .when(publisher())
+                .publish(argThat(message -> message.payload().contains(orderId.toString())));
+
+        kafka().send(ORDER_PLACED, orderId.toString(), orderPlaced(UUID.randomUUID(), orderId, line("SKU-001", 3)));
+        await().atMost(Duration.ofSeconds(10)).until(() -> count("outbound_dead_letters") == 1);
+
+        Map<String, Object> deadLetter = jdbc().queryForMap("select * from outbound_dead_letters");
+        assertThat(deadLetter.get("status")).isEqualTo("PENDING");
+        assertThat(deadLetter.get("retry_count")).isEqualTo(0);
+        assertThat(deadLetter.get("topic")).isEqualTo(STOCK_RESERVED);
+        assertThat((String) deadLetter.get("last_error")).contains("broker down");
+        String stored = jdbc().queryForObject("select payload::text from outcome_messages", String.class);
+        String deadLettered = jdbc().queryForObject("select payload::text from outbound_dead_letters", String.class);
+        assertThat(TestKafkaClient.json(deadLettered)).isEqualTo(TestKafkaClient.json(stored));
+        assertThat(stock().available("SKU-001")).contains(7);
+        assertThat(count("reservations where status = 'RESERVED'")).isEqualTo(1);
+        assertThat(kafka().recordsForOrder(STOCK_RESERVED, orderId)).isEmpty();
+        assertThat(count("consumed_dead_letters")).isZero();
+    }
+
+    @Test
+    @DisplayName(
+            "should retry a persistently failing message, dead-letter it with all attempts, and process the next one")
+    void shouldDeadLetterAfterRetriesAndContinue() {
+        stock().given("SKU-001", 10);
+        UUID failingOrder = UUID.randomUUID();
+        UUID nextOrder = UUID.randomUUID();
+        doThrow(new IllegalStateException("database down"))
+                .when(reserveStockService())
+                .reserve(argThat(command -> command.orderId().value().equals(failingOrder)));
+        String key = failingOrder.toString();
+
+        RecordMetadata failing =
+                kafka().send(ORDER_PLACED, key, orderPlaced(UUID.randomUUID(), failingOrder, line("SKU-001", 1)));
+        kafka().send(ORDER_PLACED, key, orderPlaced(UUID.randomUUID(), nextOrder, line("SKU-001", 2)));
+        kafka().awaitRecordsForOrder(STOCK_RESERVED, nextOrder, 1, Duration.ofSeconds(15));
+
+        Map<String, Object> deadLetter = jdbc().queryForMap(
+                        "select * from consumed_dead_letters where partition = ? and record_offset = ?",
+                        failing.partition(),
+                        failing.offset());
+        assertThat(deadLetter.get("attempts")).isEqualTo(3);
+        assertThat((String) deadLetter.get("error")).contains("database down");
+        verify(reserveStockService(), times(3))
+                .reserve(argThat(command -> command.orderId().value().equals(failingOrder)));
+        assertThat(stock().available("SKU-001")).contains(8);
+    }
+
+    @Test
+    @DisplayName("should succeed after a transient failure and publish exactly one outcome")
+    void shouldRecoverFromTransientFailure() {
+        stock().given("SKU-001", 10);
+        UUID orderId = UUID.randomUUID();
+        doThrow(new IllegalStateException("database briefly down"))
+                .doCallRealMethod()
+                .when(reserveStockService())
+                .reserve(argThat(command -> command.orderId().value().equals(orderId)));
+
+        kafka().send(ORDER_PLACED, orderId.toString(), orderPlaced(UUID.randomUUID(), orderId, line("SKU-001", 4)));
+        kafka().awaitRecordsForOrder(STOCK_RESERVED, orderId, 1, Duration.ofSeconds(10));
+        await().during(Duration.ofSeconds(1))
+                .atMost(Duration.ofSeconds(3))
+                .until(() -> kafka().recordsForOrder(STOCK_RESERVED, orderId).size() == 1);
+
+        assertThat(stock().available("SKU-001")).contains(6);
         assertThat(count("consumed_dead_letters")).isZero();
         verify(reserveStockService(), times(2))
                 .reserve(argThat(command -> command.orderId().value().equals(orderId)));
