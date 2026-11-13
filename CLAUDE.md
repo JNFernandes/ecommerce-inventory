@@ -54,6 +54,29 @@ Kafka → **after the DB save** acknowledge the offset. Never publish inside the
 publish fails, write the outbound dead-letter record in its own transaction; never roll back the
 committed state.
 
+## Where things are (US-01 reserve stock)
+
+- `messaging/OrderPlacedListener` → `OrderPlacedMessageParser` (strict Jackson reader: quantities
+  must be JSON integers, `version` must be 1; failures throw `InvalidMessageException`) →
+  `application/ReserveStockService.reserve`.
+- `ReserveStockService`: inside one `TransactionOperations` block it checks `processed_events`
+  (known `eventId` → republish the stored outcome), then `reservations.order_id` (existing order →
+  record `DUPLICATE_ORDER_IGNORED`, publish nothing), then locks stock, calls `Reservation.decide`,
+  saves stock, reservation, `outcome_messages` and `processed_events`. After the commit:
+  `publishOrDeadLetter`.
+- `domain/model/Reservation.decide`: all business rules (consolidation via `RequestedItems`,
+  all-or-nothing, `FailureKind`, `RejectionReason` with the three exact wire texts).
+- `infrastructure/kafka/KafkaConfiguration`: the `DefaultErrorHandler` (exponential backoff,
+  `ConsumedDeadLetterRecoverer`, `InvalidMessageException` not retryable, `commitRecovered`).
+  `commitRecovered` only works with ack mode `manual_immediate`; don't change the ack mode.
+- `JsonOutboundMessageFactory` + `infrastructure/kafka/message/*Message` records: the JSON contract.
+  Field order of the records is the JSON field order.
+- Tables: `stock_items`, `reservations`, `reservation_items`, `outcome_messages`,
+  `processed_events`, `outbound_dead_letters` (PENDING, for the US-03 worker),
+  `consumed_dead_letters`.
+- Local profile (`application-local.yml`, activated by `spring-boot:run`): seeds SKU-001..SKU-005
+  from `db/local/R__seed_local_stock.sql`. Never put seed data in `db/migration`.
+
 ## Stock rules
 
 - Stock never goes negative: enforced in the domain **and** by a DB `CHECK` constraint.
@@ -102,6 +125,14 @@ committed state.
   events; assert asynchronously with Awaitility (no `Thread.sleep`).
 - Names describe behaviour: `@DisplayName("should reject the whole order when one item has
   insufficient stock")`.
+- Test support in `src/test/java/.../support`: singleton containers (`PostgresTestContainer`,
+  `KafkaTestContainer`), `AbstractPostgresIT` (Kafka unreachable on purpose), `AbstractComponentIT`
+  (real Kafka), `TestKafkaClient`, `StockFixtures`, `DatabaseCleaner`.
+- Component tests: put every `@MockitoSpyBean`/`@MockitoBean` and property override in
+  `AbstractComponentIT`, never in a subclass. A second Spring context would start a second listener
+  in the same consumer group and steal messages from the first.
+- The local `orders.order-placed` topic in ecommerce-infra may contain old Orders test messages; a
+  new consumer group reads them from the beginning on first start.
 
 ## Branches and commits
 
@@ -118,5 +149,7 @@ committed state.
 
 - ADRs in `docs/adr/` (`NNNN-short-title.md`, never renumbered, indexed in `docs/adr/README.md`,
   superseded ones kept). Current: 0001 PostgreSQL, 0002 ordered pessimistic locks, 0003 parallel
-  saga participation.
+  saga participation, 0004 outcome stored with the reservation (publish after commit, republish on
+  redelivery).
+- Feature specs, plans and tasks live in `specs/NNN-name/` (Spec Kit).
 - Keep `README.md`, this file and the `Dockerfile` up to date with behaviour changes.

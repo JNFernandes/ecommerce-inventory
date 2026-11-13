@@ -255,11 +255,11 @@ products exist with 10/25/100/5/0; restarting does not reset them.
 
 ## Phase 9: Polish & Cross-Cutting Concerns
 
-- [ ] T064 [P] Write `docs/adr/0004-outcome-stored-with-reservation.md` (Context / Decision / Consequences: save the outcome message with the reservation, publish after commit, republish on redelivery, outbound dead-letter on failure; relation to US-02/US-03) and add it to the index in `docs/adr/README.md`
-- [ ] T065 [P] Update `README.md`: status (US-01 implemented), local sample products table (SKU-001..SKU-005 with quantities) and the `local` profile, Postman/kafka-ui instructions from [quickstart.md](quickstart.md), new tables, new environment variables (`KAFKA_TOPIC_*`)
-- [ ] T066 [P] Update `CLAUDE.md`: new packages and their roles, the reservation flow (`ReserveStockService`), tables, idempotency/duplicate-order rules, retry and dead-letter behaviour, seed data and `local` profile
-- [ ] T067 In the `ecommerce-infra` repository, on a branch `chore/US-01-inventory-events` created from its `main`, apply the four edits listed in [contracts/kafka-events.md](contracts/kafka-events.md#changes-required-in-ecommerce-infradocseventsmd) to `../ecommerce-infra/docs/events.md` and commit them (`docs: mark inventory reservation events as implemented`); link that PR in this feature's PR description (FR-022)
-- [ ] T068 Review coverage in `target/site/jacoco/index.html`: every package under `domain` and `application` ≥ 80% lines; add unit tests for any gap
+- [X] T064 [P] Write `docs/adr/0004-outcome-stored-with-reservation.md` (Context / Decision / Consequences: save the outcome message with the reservation, publish after commit, republish on redelivery, outbound dead-letter on failure; relation to US-02/US-03) and add it to the index in `docs/adr/README.md`
+- [X] T065 [P] Update `README.md`: status (US-01 implemented), local sample products table (SKU-001..SKU-005 with quantities) and the `local` profile, Postman/kafka-ui instructions from [quickstart.md](quickstart.md), new tables, new environment variables (`KAFKA_TOPIC_*`)
+- [X] T066 [P] Update `CLAUDE.md`: new packages and their roles, the reservation flow (`ReserveStockService`), tables, idempotency/duplicate-order rules, retry and dead-letter behaviour, seed data and `local` profile
+- [X] T067 In the `ecommerce-infra` repository, on a branch `chore/US-01-inventory-events` created from its `main`, apply the four edits listed in [contracts/kafka-events.md](contracts/kafka-events.md#changes-required-in-ecommerce-infradocseventsmd) to `../ecommerce-infra/docs/events.md` and commit them (`docs: mark inventory reservation events as implemented`); link that PR in this feature's PR description (FR-022)
+- [X] T068 Review coverage in `target/site/jacoco/index.html`: every package under `domain` and `application` ≥ 80% lines; add unit tests for any gap
 - [ ] T069 Run the manual scenarios A–D from [quickstart.md](quickstart.md) against ecommerce-infra and record the result in the PR description
 - [ ] T070 Final full quality gate (compile, checkstyle, spotless, verify) on a clean build (`.\mvnw.cmd -B clean verify`)
 

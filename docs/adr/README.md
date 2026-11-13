@@ -21,3 +21,4 @@ requires (Documentation Standards).
 | [0001](0001-postgresql-for-inventory.md) | PostgreSQL for Inventory instead of a NoSQL store | Accepted |
 | [0002](0002-atomic-stock-reservation-strategy.md) | Atomic stock reservation: pessimistic row locks ordered by productId | Accepted |
 | [0003](0003-inventory-in-order-saga.md) | Inventory takes part in the order saga in parallel with Payments | Accepted |
+| [0004](0004-outcome-stored-with-reservation.md) | Outcome message stored with the reservation, published after commit | Accepted |
