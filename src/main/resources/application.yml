@@ -39,8 +39,14 @@ spring:
         enable.idempotence: true
         # Bound how long a send may block waiting for metadata when Kafka is down.
         max.block.ms: ${KAFKA_PRODUCER_MAX_BLOCK_MS:10000}
+        # Bound the whole send so a synchronous publish stays far below max.poll.interval.ms.
+        delivery.timeout.ms: 15000
+        request.timeout.ms: 5000
     listener:
-      ack-mode: manual
+      # MANUAL_IMMEDIATE is required for DefaultErrorHandler.setCommitRecovered(true): Spring Kafka
+      # ignores commitRecovered for any other ack mode, which would leave dead-lettered offsets
+      # uncommitted (research R6).
+      ack-mode: manual_immediate
       # Containers are not started during context refresh; KafkaListenerStarter starts them in the
       # background once the application is ready, so startup never waits for Kafka.
       auto-startup: false
@@ -49,6 +55,26 @@ spring:
       # Topics are created by ecommerce-infra (kafka-init); never connect to the broker at boot.
       auto-create: false
       fail-fast: false
+
+inventory:
+  kafka:
+    topics:
+      order-placed: ${KAFKA_TOPIC_ORDER_PLACED:orders.order-placed}
+      stock-reserved: ${KAFKA_TOPIC_STOCK_RESERVED:inventory.stock-reserved}
+      stock-rejected: ${KAFKA_TOPIC_STOCK_REJECTED:inventory.stock-rejected}
+    # Inbound retries before a message is dead-lettered (research R6).
+    consumer-retry:
+      max-retries: 3
+      initial-interval: 1s
+      multiplier: 2.0
+      max-interval: 10s
+    # Maximum time a synchronous publish waits for the broker acknowledgement (research R7).
+    publish-timeout: 15s
+  outbound-dead-letter:
+    first-retry-delay: 30s
+  stock:
+    # Upper bound on waiting for stock row locks (ADR 0002, research R2).
+    lock-timeout: 5s
 
 server:
   port: ${SERVER_PORT:8081}  # 8080 is taken by kafka-ui in ecommerce-infra

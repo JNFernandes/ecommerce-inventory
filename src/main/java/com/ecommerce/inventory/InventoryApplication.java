@@ -2,9 +2,11 @@ package com.ecommerce.inventory;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.context.properties.ConfigurationPropertiesScan;
 
 /** Entry point of the Inventory service. */
 @SpringBootApplication
+@ConfigurationPropertiesScan
 public class InventoryApplication {
 
     /**
