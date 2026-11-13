@@ -2,9 +2,13 @@ package com.ecommerce.inventory.infrastructure.persistence;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.ecommerce.inventory.domain.model.FailureKind;
+import com.ecommerce.inventory.domain.model.ItemFailure;
 import com.ecommerce.inventory.domain.model.OrderId;
 import com.ecommerce.inventory.domain.model.ProductId;
 import com.ecommerce.inventory.domain.model.Quantity;
+import com.ecommerce.inventory.domain.model.Rejection;
+import com.ecommerce.inventory.domain.model.RejectionReason;
 import com.ecommerce.inventory.domain.model.RequestedItem;
 import com.ecommerce.inventory.domain.model.RequestedItems;
 import com.ecommerce.inventory.domain.model.Reservation;
@@ -71,6 +75,39 @@ class ReservationRepositoryAdapterIT extends AbstractPostgresIT {
     @DisplayName("should return empty for an order without reservation")
     void shouldReturnEmptyForUnknownOrder() {
         assertThat(repository.findByOrderId(new OrderId(UUID.randomUUID()))).isEmpty();
+    }
+
+    @Test
+    @DisplayName("should save and restore a rejected reservation with reason and failing items")
+    void shouldRoundTripRejectedReservation() {
+        Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
+        Rejection rejection = new Rejection(
+                RejectionReason.UNKNOWN_PRODUCT_AND_INSUFFICIENT_STOCK,
+                List.of(
+                        new ItemFailure(new ProductId("SKU-004"), 6, 5, FailureKind.INSUFFICIENT_STOCK),
+                        new ItemFailure(new ProductId("SKU-999"), 1, 0, FailureKind.UNKNOWN_PRODUCT)));
+        Reservation reservation = Reservation.restoreRejected(
+                ReservationId.newId(),
+                new OrderId(UUID.randomUUID()),
+                RequestedItems.consolidate(List.of(item("SKU-001", 2), item("SKU-004", 6), item("SKU-999", 1))),
+                rejection,
+                now,
+                now);
+
+        transactions.executeWithoutResult(status -> repository.save(reservation));
+
+        assertThat(repository.findByOrderId(reservation.orderId())).hasValueSatisfying(found -> {
+            assertThat(found.status()).isEqualTo(ReservationStatus.REJECTED);
+            assertThat(found.items()).isEqualTo(reservation.items());
+            assertThat(found.rejection()).contains(rejection);
+        });
+        assertThat(jdbc.queryForList(
+                        "select product_id || ':' || coalesce(failure_kind, '-') || ':'"
+                                + " || coalesce(available_at_decision::text, '-')"
+                                + " from reservation_items where reservation_id = ? order by product_id",
+                        String.class,
+                        reservation.id().value()))
+                .containsExactly("SKU-001:-:-", "SKU-004:INSUFFICIENT_STOCK:5", "SKU-999:UNKNOWN_PRODUCT:0");
     }
 
     private static RequestedItem item(String productId, long quantity) {

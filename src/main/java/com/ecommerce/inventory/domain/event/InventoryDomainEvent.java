@@ -5,7 +5,7 @@ import com.ecommerce.inventory.domain.model.ReservationId;
 import java.time.Instant;
 
 /** A fact raised by a reservation decision. Each event maps to exactly one Kafka topic. */
-public sealed interface InventoryDomainEvent permits StockReserved {
+public sealed interface InventoryDomainEvent permits StockReserved, StockRejected {
 
     /**
      * Reservation that raised the event; the {@code aggregateId} of the published message.

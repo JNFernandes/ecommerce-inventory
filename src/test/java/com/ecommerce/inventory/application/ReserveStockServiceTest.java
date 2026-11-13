@@ -18,6 +18,7 @@ import com.ecommerce.inventory.application.port.OutcomeMessageRepository;
 import com.ecommerce.inventory.application.port.ProcessedEvent;
 import com.ecommerce.inventory.application.port.ProcessedEventRepository;
 import com.ecommerce.inventory.application.port.ProcessedOutcome;
+import com.ecommerce.inventory.domain.event.StockRejected;
 import com.ecommerce.inventory.domain.event.StockReserved;
 import com.ecommerce.inventory.domain.model.OrderId;
 import com.ecommerce.inventory.domain.model.ProductId;
@@ -152,6 +153,30 @@ class ReserveStockServiceTest {
                 .hasMessage("database down");
         verify(publisher, never()).publish(any());
         assertThat(journal).containsExactly("begin", "rollback");
+    }
+
+    @Test
+    @DisplayName(
+            "should not save stock for a rejected order but still save reservation, outcome and event, then publish")
+    void shouldHandleRejectedOrder() {
+        givenStock("SKU-004", 5);
+        OutboundMessage rejectedMessage =
+                new OutboundMessage(UUID.randomUUID(), "inventory.stock-rejected", "key", "{}");
+        when(messageFactory.create(any(StockRejected.class))).thenReturn(rejectedMessage);
+        record("saveReservation").when(reservations).save(any(Reservation.class));
+        record("saveOutcome").when(outcomeMessages).save(any(), eq(rejectedMessage));
+        record("saveProcessed").when(processedEvents).save(any(ProcessedEvent.class));
+        record("publish").when(publisher).publish(rejectedMessage);
+
+        ReserveStockOutcome outcome = service.reserve(command(line("SKU-004", 6), line("SKU-999", 1)));
+
+        verify(stockItems, never()).saveAll(anyCollection());
+        assertThat(journal)
+                .containsExactly("begin", "saveReservation", "saveOutcome", "saveProcessed", "commit", "publish");
+        assertThat(outcome)
+                .isInstanceOfSatisfying(
+                        ReserveStockOutcome.Decided.class,
+                        decided -> assertThat(decided.status()).isEqualTo(ReservationStatus.REJECTED));
     }
 
     @Test

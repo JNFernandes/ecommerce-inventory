@@ -5,7 +5,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.ecommerce.inventory.domain.event.InventoryDomainEvent;
 import com.ecommerce.inventory.domain.event.StockReserved;
-import com.ecommerce.inventory.domain.exception.InsufficientStockException;
 import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -84,15 +83,11 @@ class ReservationReserveTest {
     }
 
     @Test
-    @DisplayName("should leave all stock untouched when one item cannot be supplied")
-    void shouldBeAllOrNothing() {
-        Map<ProductId, StockItem> stock = stock("SKU-001", 10, "SKU-004", 5);
-
-        assertThatThrownBy(() -> Reservation.decide(
-                        RESERVATION_ID, ORDER_ID, items(line("SKU-001", 2), line("SKU-004", 6)), stock, NOW))
-                .isInstanceOf(InsufficientStockException.class);
-        assertThat(stock.get(new ProductId("SKU-001")).availableQuantity()).isEqualTo(10);
-        assertThat(stock.get(new ProductId("SKU-004")).availableQuantity()).isEqualTo(5);
+    @DisplayName("should refuse to restore a REJECTED reservation without its rejection")
+    void shouldRefuseRejectedWithoutRejection() {
+        assertThatThrownBy(() -> Reservation.restore(
+                        RESERVATION_ID, ORDER_ID, ReservationStatus.REJECTED, items(line("SKU-001", 3)), NOW, NOW))
+                .isInstanceOf(IllegalArgumentException.class);
     }
 
     @Test

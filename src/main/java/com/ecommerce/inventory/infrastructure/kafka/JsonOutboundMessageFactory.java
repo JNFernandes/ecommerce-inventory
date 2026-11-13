@@ -3,9 +3,12 @@ package com.ecommerce.inventory.infrastructure.kafka;
 import com.ecommerce.inventory.application.port.OutboundMessage;
 import com.ecommerce.inventory.application.port.OutboundMessageFactory;
 import com.ecommerce.inventory.domain.event.InventoryDomainEvent;
+import com.ecommerce.inventory.domain.event.StockRejected;
 import com.ecommerce.inventory.domain.event.StockReserved;
 import com.ecommerce.inventory.infrastructure.config.InventoryProperties;
+import com.ecommerce.inventory.infrastructure.kafka.message.RejectedItem;
 import com.ecommerce.inventory.infrastructure.kafka.message.ReservedItem;
+import com.ecommerce.inventory.infrastructure.kafka.message.StockRejectedMessage;
 import com.ecommerce.inventory.infrastructure.kafka.message.StockReservedMessage;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -43,7 +46,24 @@ public class JsonOutboundMessageFactory implements OutboundMessageFactory {
         return switch (event) {
             case StockReserved reserved ->
                 new OutboundMessage(eventId, topics.stockReserved(), key, toJson(reservedMessage(eventId, reserved)));
+            case StockRejected rejected ->
+                new OutboundMessage(eventId, topics.stockRejected(), key, toJson(rejectedMessage(eventId, rejected)));
         };
+    }
+
+    private static StockRejectedMessage rejectedMessage(UUID eventId, StockRejected event) {
+        return new StockRejectedMessage(
+                eventId,
+                event.occurredAt(),
+                event.reservationId().value(),
+                VERSION,
+                event.orderId().value(),
+                event.reason().wireValue(),
+                event.failures().stream()
+                        .map(failure ->
+                                new RejectedItem(failure.productId().value(), failure.requested(), failure.available()))
+                        .toList(),
+                event.rejectedAt());
     }
 
     private static StockReservedMessage reservedMessage(UUID eventId, StockReserved event) {

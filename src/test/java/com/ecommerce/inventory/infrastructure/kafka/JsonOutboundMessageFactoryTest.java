@@ -3,10 +3,14 @@ package com.ecommerce.inventory.infrastructure.kafka;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.ecommerce.inventory.application.port.OutboundMessage;
+import com.ecommerce.inventory.domain.event.StockRejected;
 import com.ecommerce.inventory.domain.event.StockReserved;
+import com.ecommerce.inventory.domain.model.FailureKind;
+import com.ecommerce.inventory.domain.model.ItemFailure;
 import com.ecommerce.inventory.domain.model.OrderId;
 import com.ecommerce.inventory.domain.model.ProductId;
 import com.ecommerce.inventory.domain.model.Quantity;
+import com.ecommerce.inventory.domain.model.RejectionReason;
 import com.ecommerce.inventory.domain.model.RequestedItem;
 import com.ecommerce.inventory.domain.model.ReservationId;
 import com.ecommerce.inventory.support.TestKafkaClient;
@@ -73,6 +77,54 @@ class JsonOutboundMessageFactoryTest {
     void shouldGenerateNewEventIds() {
         assertThat(factory.create(reserved()).eventId())
                 .isNotEqualTo(factory.create(reserved()).eventId());
+    }
+
+    @Test
+    @DisplayName("should map StockRejected to inventory.stock-rejected keyed by the reservation id")
+    void shouldMapStockRejectedTopicAndKey() {
+        OutboundMessage message = factory.create(rejected());
+
+        assertThat(message.topic()).isEqualTo("inventory.stock-rejected");
+        assertThat(message.key()).isEqualTo(RESERVATION_ID.toString());
+    }
+
+    @Test
+    @DisplayName("should produce exactly the stock-rejected contract fields with only the failing items")
+    void shouldProduceRejectedContractFields() {
+        OutboundMessage message = factory.create(rejected());
+        JsonNode json = TestKafkaClient.json(message.payload());
+
+        List<String> fields = new ArrayList<>();
+        json.fieldNames().forEachRemaining(fields::add);
+        assertThat(fields)
+                .containsExactly(
+                        "eventId", "occurredAt", "aggregateId", "version", "orderId", "reason", "items", "rejectedAt");
+        assertThat(json.get("aggregateId").asText()).isEqualTo(RESERVATION_ID.toString());
+        assertThat(json.get("version").asInt()).isEqualTo(1);
+        assertThat(json.get("orderId").asText()).isEqualTo(ORDER_ID.toString());
+        assertThat(json.get("reason").asText()).isEqualTo("unknown product and insufficient stock");
+        assertThat(json.get("occurredAt").asText()).isEqualTo("2026-11-13T10:15:30.456Z");
+        assertThat(json.get("rejectedAt").asText()).isEqualTo("2026-11-13T10:15:30.456Z");
+        assertThat(json.get("items")).hasSize(2);
+        JsonNode first = json.get("items").get(0);
+        List<String> itemFields = new ArrayList<>();
+        first.fieldNames().forEachRemaining(itemFields::add);
+        assertThat(itemFields).containsExactly("productId", "requested", "available");
+        assertThat(first.get("productId").asText()).isEqualTo("SKU-004");
+        assertThat(first.get("requested").asLong()).isEqualTo(6);
+        assertThat(first.get("available").asInt()).isEqualTo(5);
+        assertThat(json.get("items").get(1).get("available").asInt()).isZero();
+    }
+
+    private static StockRejected rejected() {
+        return new StockRejected(
+                RESERVATION_ID,
+                ORDER_ID,
+                RejectionReason.UNKNOWN_PRODUCT_AND_INSUFFICIENT_STOCK,
+                List.of(
+                        new ItemFailure(new ProductId("SKU-004"), 6, 5, FailureKind.INSUFFICIENT_STOCK),
+                        new ItemFailure(new ProductId("SKU-999"), 1, 0, FailureKind.UNKNOWN_PRODUCT)),
+                RESERVED_AT);
     }
 
     private static StockReserved reserved() {
