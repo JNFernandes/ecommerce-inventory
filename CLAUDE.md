@@ -49,8 +49,10 @@ until all four pass. `verify` needs Docker running (Testcontainers).
 ## Write flow (never deviate)
 
 consume → validate → application service → domain → **one PostgreSQL transaction** (stock,
-reservation, processed-event record, outbound dead-letter record) → **after commit** publish to
-Kafka → **after the DB save** acknowledge the offset. Never publish inside the transaction.
+reservation, outcome message to publish, processed-event record) → **after commit** publish to
+Kafka → **after the DB save** acknowledge the offset. Never publish inside the transaction. If the
+publish fails, write the outbound dead-letter record in its own transaction; never roll back the
+committed state.
 
 ## Stock rules
 

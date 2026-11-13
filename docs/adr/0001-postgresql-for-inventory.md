@@ -2,6 +2,9 @@
 
 - **Status**: Accepted
 - **Date**: 2026-11-13
+- **Amended**: 2026-11-13. Context wording aligned with constitution v1.0.1 (the outbound
+  dead-letter record is written after a failed post-commit publish, not in the write
+  transaction). The decision is unchanged.
 
 ## Context
 
@@ -13,9 +16,10 @@ Inventory owns product stock and stock reservations. Its core invariants are str
 - at most one reservation exists per order, and it is released at most once.
 
 On top of that, the constitution (Principles III and VIII) requires that each state change, the
-processed-event record used for consumer idempotency and any outbound dead-letter record are
-written in **one transaction**, and that a retry worker can claim dead-letter rows concurrently
-(`FOR UPDATE SKIP LOCKED`).
+outcome message to be published and the processed-event record used for consumer idempotency are
+written in **one transaction**, that a failed post-commit publish is recorded in an outbound
+dead-letter table in its own transaction, and that a retry worker can claim dead-letter rows
+concurrently (`FOR UPDATE SKIP LOCKED`).
 
 The system follows database-per-service: each service owns its store and no other service reads
 it. The rest of the system already uses PostgreSQL for write-side invariants (Orders, Payments) and
@@ -36,8 +40,8 @@ We will not use a NoSQL store for Inventory.
 
 ## Consequences
 
-- Multi-row, multi-table ACID transactions are available, so all-or-nothing reservation,
-  idempotency records and the outbound dead-letter record commit or roll back together.
+- Multi-row, multi-table ACID transactions are available, so all-or-nothing reservation, the
+  outcome message and idempotency records commit or roll back together.
 - Row-level locks (`SELECT ... FOR UPDATE`, `SKIP LOCKED`) give a precise, well-understood
   concurrency model for stock (see ADR 0002) and for the retry worker.
 - The `CHECK` and unique constraints are a safety net: a domain bug cannot oversell or create a
