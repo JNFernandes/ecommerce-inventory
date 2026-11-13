@@ -1,44 +1,45 @@
 <!--
 SYNC IMPACT REPORT
 ==================
-Version change:    (template, unversioned) → 1.0.0
-Bump rationale:    Initial ratification. All placeholder tokens replaced with concrete principles
-                   modelled on the ecommerce-orders constitution (v1.1.0) and adapted to Java 21 /
-                   Spring Boot 3.x for the Inventory service.
+Version change:    1.0.0 → 1.0.1
+Bump rationale:    PATCH — clarification only, no behaviour change. Principle III step 5 listed
+                   "any outbound dead-letter record" inside the single write transaction, which
+                   contradicted step 6 and Principle VIII: an outbound dead-letter record only
+                   exists after a publish fails, and publishing happens after the commit. Found by
+                   /speckit-analyze on specs/001-reserve-stock (finding C1).
 
-Modified principles (template slot → new title):
-  - [PRINCIPLE_1_NAME] → I. Domain-Driven Design & Layered Architecture
-  - [PRINCIPLE_2_NAME] → II. Event-Driven Service, No API (NON-NEGOTIABLE)
-  - [PRINCIPLE_3_NAME] → III. Write Flow Integrity (NON-NEGOTIABLE)
-  - [PRINCIPLE_4_NAME] → IV. Stock Integrity (NON-NEGOTIABLE)
-  - [PRINCIPLE_5_NAME] → V. Type Safety & Input Validation
+Modified principles:
+  - III. Write Flow Integrity (NON-NEGOTIABLE) — title unchanged. Step 5 now lists stock
+    changes, reservation, the outcome message to be published, and the processed-event record.
+    New paragraph: on a failed post-commit publish, the outbound dead-letter record is written in
+    its own transaction (Principle VIII) and committed state is never rolled back.
 
 Added sections:
-  - Principles VI. Test Coverage, VII. Testing Strategy, VIII. Kafka Events (Producer &
-    Consumers), IX. Branching Strategy, X. Build & Code Quality Integrity (NON-NEGOTIABLE)
-  - Technology Stack (replaces [SECTION_2_NAME])
-  - Documentation Standards (replaces [SECTION_3_NAME])
-  - Governance (amendment procedure, versioning policy, compliance)
+  - (none)
 
 Removed sections:
   - (none)
 
 Templates reviewed:
   ✅ .specify/templates/plan-template.md  — Constitution Check gates derive from this file at runtime; no static change needed.
-  ✅ .specify/templates/spec-template.md  — Generic structure; no mandatory section added or removed.
-  ✅ .specify/templates/tasks-template.md — Phase/story structure compatible; test, migration and consumer tasks fit existing phases.
+  ✅ .specify/templates/spec-template.md  — Generic structure; no change needed.
+  ✅ .specify/templates/tasks-template.md — No principle-driven task type added or removed.
   ✅ .specify/templates/commands/*.md     — Directory not present in this project; nothing to update.
 
-Cross-repository source of truth:
-  ✅ ecommerce-infra/docs/events.md — topics and the orderId/aggregateId rule match Principle VIII
-     (inventory.* events are listed there as "planned").
+Runtime guidance:
+  ✅ CLAUDE.md                            — "Write flow" line aligned with the amended step 5.
+  ✅ docs/adr/0001-postgresql-for-inventory.md — transaction contents corrected, amendment noted.
+  ✅ README.md, Dockerfile, docs/adr/README.md, ADR 0002 — created by the project bootstrap
+     (were listed as pending in the 1.0.0 report).
+  ✅ specs/001-reserve-stock (spec FR-017, research R3/R7, tasks T036/T056–T057) — already match
+     the clarified wording; no change needed.
 
-Runtime guidance (required by Documentation Standards, not yet present):
-  ⚠ README.md            — to be created at repo root.
-  ⚠ CLAUDE.md            — to be created at repo root, aligned with this version.
-  ⚠ Dockerfile           — multi-stage, to be created with the project skeleton.
-  ⚠ docs/adr/README.md   — ADR index and template to be created.
-  ⚠ ADR for the stock concurrency strategy (Principle IV) — required before the reserve-stock story is merged.
+Migration note:
+  - None. No code exists yet that writes the outbound dead-letter record.
+
+Previous amendments:
+  - 1.0.0 (2026-11-13): initial ratification from the template, modelled on ecommerce-orders
+    v1.1.0 and adapted to Java 21 / Spring Boot 3.x.
 
 Deferred TODOs:
   (none)
@@ -97,7 +98,7 @@ Every state change MUST follow this exact sequence and MUST NOT deviate:
 3. The listener calls one application service method.
 4. The domain executes business logic and raises domain events.
 5. Persist to **PostgreSQL in a single transaction**: stock changes, the reservation, the
-   processed-event record, and any outbound dead-letter record.
+   outcome message to be published, and the processed-event record.
 6. **Only after** a successful commit: publish the resulting Kafka event.
 7. **Only after** the DB save: commit the consumer offset.
 
@@ -106,6 +107,9 @@ back, no Kafka message MUST be emitted and the offset MUST NOT be committed. Pub
 triggered after commit (e.g. `@TransactionalEventListener(phase = AFTER_COMMIT)` or explicit
 post-commit code), never from inside the transaction. `ReservationStatus` transitions are only
 final once persisted.
+
+If the post-commit publish fails, the outbound dead-letter record is written in its own
+transaction (Principle VIII); the committed state is never rolled back.
 
 ### IV. Stock Integrity (NON-NEGOTIABLE)
 
@@ -343,4 +347,4 @@ note if existing code must change.
 Reviewers are empowered to block merges for violations without exception. New principles take
 effect immediately upon merge.
 
-**Version**: 1.0.0 | **Ratified**: 2026-11-13 | **Last Amended**: 2026-11-13
+**Version**: 1.0.1 | **Ratified**: 2026-11-13 | **Last Amended**: 2026-11-13

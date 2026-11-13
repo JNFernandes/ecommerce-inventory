@@ -2,6 +2,7 @@ package com.ecommerce.inventory;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.ecommerce.inventory.support.PostgresTestContainer;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -11,8 +12,6 @@ import org.springframework.boot.testcontainers.service.connection.ServiceConnect
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.testcontainers.containers.PostgreSQLContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
 
 /**
  * Smoke test: the full application boots against a real PostgreSQL and reports healthy.
@@ -20,15 +19,13 @@ import org.testcontainers.junit.jupiter.Testcontainers;
  * <p>Kafka deliberately points at a port where nothing listens, proving the service starts and
  * stays healthy while the broker is unreachable (constitution Principle VIII).
  */
-@Testcontainers
 @SpringBootTest(
         webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
         properties = "spring.kafka.bootstrap-servers=localhost:1")
 class ApplicationHealthIT {
 
-    @Container
     @ServiceConnection
-    static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine");
+    static final PostgreSQLContainer<?> POSTGRES = PostgresTestContainer.instance();
 
     @Autowired
     private TestRestTemplate restTemplate;

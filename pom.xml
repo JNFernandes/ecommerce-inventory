@@ -126,6 +126,13 @@
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
+                <configuration>
+                    <!-- ./mvnw spring-boot:run uses the local profile (sample products, FR-026).
+                         Docker images, tests and production never activate it. -->
+                    <profiles>
+                        <profile>local</profile>
+                    </profiles>
+                </configuration>
             </plugin>
 
             <!-- Unit tests: *Test classes. Integration and component tests (*IT) run in failsafe. -->

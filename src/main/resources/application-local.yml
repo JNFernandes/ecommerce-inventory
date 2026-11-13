@@ -1,0 +1,5 @@
+# Local development profile, activated by ./mvnw spring-boot:run (see pom.xml).
+# Adds the sample products SKU-001..SKU-005 (db/local/R__seed_local_stock.sql).
+spring:
+  flyway:
+    locations: classpath:db/migration,classpath:db/local
