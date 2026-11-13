@@ -1,0 +1,71 @@
+# Every value comes from an environment variable; the defaults match ecommerce-infra
+# (docker compose) for local development.
+spring:
+  application:
+    name: ecommerce-inventory
+  threads:
+    virtual:
+      enabled: true
+
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5433/inventory}
+    username: ${DB_USERNAME:inventory_user}
+    password: ${DB_PASSWORD:inventory_pass}
+
+  jpa:
+    open-in-view: false
+    hibernate:
+      # The schema is owned by Flyway; Hibernate only checks that the mapping matches it.
+      ddl-auto: validate
+
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    consumer:
+      group-id: ${KAFKA_CONSUMER_GROUP_ID:inventory-service}
+      auto-offset-reset: earliest
+      # Offsets are committed by the listener only after the database save (Principle VIII).
+      enable-auto-commit: false
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      acks: all
+      properties:
+        enable.idempotence: true
+        # Bound how long a send may block waiting for metadata when Kafka is down.
+        max.block.ms: ${KAFKA_PRODUCER_MAX_BLOCK_MS:10000}
+    listener:
+      ack-mode: manual
+      # Containers are not started during context refresh; KafkaListenerStarter starts them in the
+      # background once the application is ready, so startup never waits for Kafka.
+      auto-startup: false
+      missing-topics-fatal: false
+    admin:
+      # Topics are created by ecommerce-infra (kafka-init); never connect to the broker at boot.
+      auto-create: false
+      fail-fast: false
+
+server:
+  port: ${SERVER_PORT:8080}
+  shutdown: graceful
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      show-details: never
+      probes:
+        enabled: true
+  health:
+    livenessstate:
+      enabled: true
+    readinessstate:
+      enabled: true
