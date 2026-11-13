@@ -1,0 +1,3 @@
+-- V1: baseline for the Inventory schema.
+-- Intentionally creates no tables. Stock, reservation, processed-event and dead-letter tables are
+-- added by later migrations, one per user story. Schema changes are made only through Flyway.

@@ -1,0 +1,122 @@
+<?xml version="1.0"?>
+<!DOCTYPE module PUBLIC
+        "-//Checkstyle//DTD Checkstyle Configuration 1.3//EN"
+        "https://checkstyle.org/dtds/configuration_1_3.dtd">
+<!--
+  Checkstyle rules for ecommerce-inventory (constitution Principle X).
+  Layout (indentation, wrapping, import order) is owned by Spotless / palantir-java-format, so it
+  is not checked here. These rules cover correctness, naming, Javadoc and banned constructs.
+  Every violation is reported with severity "warning" and fails the build.
+-->
+<module name="Checker">
+    <property name="charset" value="UTF-8"/>
+    <property name="severity" value="warning"/>
+    <property name="fileExtensions" value="java"/>
+
+    <module name="SuppressWarningsFilter"/>
+    <module name="NewlineAtEndOfFile">
+        <property name="lineSeparator" value="lf"/>
+    </module>
+    <module name="FileTabCharacter"/>
+    <module name="LineLength">
+        <property name="max" value="120"/>
+        <property name="ignorePattern" value="^package.*|^import.*|a href|href|http://|https://"/>
+    </module>
+    <module name="JavadocPackage"/>
+
+    <module name="TreeWalker">
+        <module name="SuppressWarningsHolder"/>
+
+        <!-- Imports -->
+        <module name="AvoidStarImport"/>
+        <module name="IllegalImport"/>
+        <module name="RedundantImport"/>
+        <module name="UnusedImports"/>
+
+        <!-- Naming -->
+        <module name="ConstantName"/>
+        <module name="LocalFinalVariableName"/>
+        <module name="LocalVariableName"/>
+        <module name="MemberName"/>
+        <module name="MethodName"/>
+        <module name="PackageName">
+            <property name="format" value="^[a-z]+(\.[a-z][a-z0-9]*)*$"/>
+        </module>
+        <module name="ParameterName"/>
+        <module name="StaticVariableName"/>
+        <module name="TypeName"/>
+        <module name="RecordComponentName"/>
+
+        <!-- Javadoc on public API (Documentation Standards). Test sources are exempt. -->
+        <module name="MissingJavadocType">
+            <property name="scope" value="public"/>
+        </module>
+        <module name="MissingJavadocMethod">
+            <property name="scope" value="public"/>
+            <property name="allowMissingPropertyJavadoc" value="true"/>
+            <property name="tokens" value="METHOD_DEF,CTOR_DEF,ANNOTATION_FIELD_DEF,COMPACT_CTOR_DEF"/>
+        </module>
+        <module name="JavadocMethod">
+            <property name="accessModifiers" value="public"/>
+            <property name="validateThrows" value="false"/>
+        </module>
+        <module name="JavadocStyle">
+            <property name="checkEmptyJavadoc" value="true"/>
+        </module>
+        <module name="NonEmptyAtclauseDescription"/>
+        <module name="InvalidJavadocPosition"/>
+
+        <!-- Blocks and coding -->
+        <module name="EmptyBlock">
+            <property name="option" value="TEXT"/>
+        </module>
+        <module name="EmptyCatchBlock"/>
+        <module name="NeedBraces"/>
+        <module name="EqualsHashCode"/>
+        <module name="SimplifyBooleanExpression"/>
+        <module name="SimplifyBooleanReturn"/>
+        <module name="StringLiteralEquality"/>
+        <module name="MissingSwitchDefault"/>
+        <module name="FallThrough"/>
+        <module name="OneStatementPerLine"/>
+        <module name="MultipleVariableDeclarations"/>
+        <module name="ModifiedControlVariable"/>
+        <module name="UpperEll"/>
+        <module name="ArrayTypeStyle"/>
+        <module name="HideUtilityClassConstructor">
+            <!-- The Spring Boot main class is proxied, so it keeps a public constructor. -->
+            <property name="ignoreAnnotatedBy" value="SpringBootApplication"/>
+        </module>
+        <module name="FinalClass"/>
+        <module name="VisibilityModifier">
+            <property name="protectedAllowed" value="false"/>
+            <property name="allowPublicFinalFields" value="false"/>
+        </module>
+
+        <!-- Banned constructs (Principle V): no catching Throwable/Error, no printing to stdout. -->
+        <module name="IllegalCatch">
+            <property name="illegalClassNames" value="Throwable, java.lang.Throwable, Error, java.lang.Error"/>
+        </module>
+        <module name="IllegalThrows">
+            <property name="illegalClassNames" value="Throwable, java.lang.Throwable, Error, java.lang.Error"/>
+        </module>
+        <module name="Regexp">
+            <property name="id" value="noSystemOut"/>
+            <property name="format" value="System\.(out|err)\.print"/>
+            <property name="illegalPattern" value="true"/>
+            <property name="message" value="Use SLF4J logging instead of System.out/System.err."/>
+        </module>
+        <module name="Regexp">
+            <property name="id" value="noPrintStackTrace"/>
+            <property name="format" value="\.printStackTrace\(\)"/>
+            <property name="illegalPattern" value="true"/>
+            <property name="message" value="Log the exception with full context instead of printStackTrace()."/>
+        </module>
+    </module>
+
+    <!-- Test classes are not public API: no Javadoc requirement, and no package-info needed. -->
+    <module name="SuppressionSingleFilter">
+        <property name="files" value="[\\/]src[\\/]test[\\/]"/>
+        <property name="checks" value="MissingJavadoc(Type|Method)|JavadocPackage"/>
+    </module>
+</module>

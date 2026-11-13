@@ -1,0 +1,16 @@
+# Build output and local tooling never go into the build context.
+target/
+.git/
+.gitignore
+.gitattributes
+.idea/
+.vscode/
+*.iml
+.claude/
+.specify/
+docs/
+*.md
+.env
+.env.*
+Dockerfile
+.dockerignore
