@@ -21,6 +21,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -93,17 +94,69 @@ public class ReserveStockService {
      * @return what was done
      */
     public ReserveStockOutcome reserve(ReserveStockCommand command) {
-        Decision decision = Objects.requireNonNull(transactions.execute(status -> decideAndSave(command)));
-        publisher.publish(decision.message());
-        LOG.info(
-                "Order {} handled: reservation {} {}, inbound event {}, published event {} to {}",
-                command.orderId(),
-                decision.reservationId(),
-                decision.status(),
-                command.eventId(),
-                decision.message().eventId(),
-                decision.message().topic());
-        return new ReserveStockOutcome.Decided(decision.reservationId(), decision.status());
+        Step step = Objects.requireNonNull(transactions.execute(status -> handleInTransaction(command)));
+        return switch (step) {
+            case Decision decision -> {
+                publisher.publish(decision.message());
+                LOG.info(
+                        "Order {} handled: reservation {} {}, inbound event {}, published event {} to {}",
+                        command.orderId(),
+                        decision.reservationId(),
+                        decision.status(),
+                        command.eventId(),
+                        decision.message().eventId(),
+                        decision.message().topic());
+                yield new ReserveStockOutcome.Decided(decision.reservationId(), decision.status());
+            }
+            case Redelivery redelivery -> {
+                publisher.publish(redelivery.message());
+                LOG.info(
+                        "Redelivered event {} for order {} already processed: republished event {} of reservation {}",
+                        command.eventId(),
+                        command.orderId(),
+                        redelivery.message().eventId(),
+                        redelivery.reservationId());
+                yield new ReserveStockOutcome.Redelivered(redelivery.reservationId());
+            }
+            case Ignored ignored -> new ReserveStockOutcome.DuplicateOrderIgnored(ignored.existingReservationId());
+        };
+    }
+
+    /**
+     * Idempotency (FR-014 to FR-016): a known event id changes nothing and at most republishes the
+     * stored outcome; a new event for an order that already has a reservation is recorded and ignored.
+     */
+    private Step handleInTransaction(ReserveStockCommand command) {
+        Optional<ProcessedEvent> processed = processedEvents.find(command.eventId());
+        if (processed.isPresent()) {
+            ReservationId reservationId = processed.get().reservationId();
+            if (processed.get().outcome() == ProcessedOutcome.DUPLICATE_ORDER_IGNORED) {
+                LOG.info("Redelivered event {} was ignored as a duplicate order before", command.eventId());
+                return new Ignored(reservationId);
+            }
+            OutboundMessage stored = outcomeMessages
+                    .findByReservationId(reservationId)
+                    .orElseThrow(() -> new IllegalStateException("Event " + command.eventId()
+                            + " is processed but reservation " + reservationId + " has no stored outcome message"));
+            return new Redelivery(reservationId, stored);
+        }
+        Optional<Reservation> existing = reservations.findByOrderId(command.orderId());
+        if (existing.isPresent()) {
+            ReservationId existingId = existing.get().id();
+            processedEvents.save(new ProcessedEvent(
+                    command.eventId(),
+                    command.topic(),
+                    ProcessedOutcome.DUPLICATE_ORDER_IGNORED,
+                    existingId,
+                    clock.instant()));
+            LOG.info(
+                    "Duplicate OrderPlaced ignored: order {}, new event {}, existing reservation {}",
+                    command.orderId(),
+                    command.eventId(),
+                    existingId);
+            return new Ignored(existingId);
+        }
+        return decideAndSave(command);
     }
 
     private Decision decideAndSave(ReserveStockCommand command) {
@@ -126,5 +179,13 @@ public class ReserveStockService {
         return new Decision(reservation.id(), reservation.status(), message);
     }
 
-    private record Decision(ReservationId reservationId, ReservationStatus status, OutboundMessage message) {}
+    /** What the transaction decided; publishing happens only after it has committed. */
+    private sealed interface Step permits Decision, Redelivery, Ignored {}
+
+    private record Decision(ReservationId reservationId, ReservationStatus status, OutboundMessage message)
+            implements Step {}
+
+    private record Redelivery(ReservationId reservationId, OutboundMessage message) implements Step {}
+
+    private record Ignored(ReservationId existingReservationId) implements Step {}
 }

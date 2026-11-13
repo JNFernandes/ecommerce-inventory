@@ -24,7 +24,9 @@ import com.ecommerce.inventory.domain.model.OrderId;
 import com.ecommerce.inventory.domain.model.ProductId;
 import com.ecommerce.inventory.domain.model.Quantity;
 import com.ecommerce.inventory.domain.model.RequestedItem;
+import com.ecommerce.inventory.domain.model.RequestedItems;
 import com.ecommerce.inventory.domain.model.Reservation;
+import com.ecommerce.inventory.domain.model.ReservationId;
 import com.ecommerce.inventory.domain.model.ReservationStatus;
 import com.ecommerce.inventory.domain.model.StockItem;
 import com.ecommerce.inventory.domain.repository.ReservationRepository;
@@ -36,6 +38,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
@@ -189,6 +192,81 @@ class ReserveStockServiceTest {
 
         verify(stockItems).lockAllOrderedByProductId(lockedIds.capture());
         assertThat(lockedIds.getValue()).containsExactly(new ProductId("SKU-001"), new ProductId("SKU-002"));
+    }
+
+    @Test
+    @DisplayName("should republish the stored outcome and change nothing when the event was already processed")
+    void shouldRepublishStoredOutcomeOnRedelivery() {
+        ReservationId existing = ReservationId.newId();
+        when(processedEvents.find(EVENT_ID))
+                .thenReturn(Optional.of(
+                        new ProcessedEvent(EVENT_ID, TOPIC, ProcessedOutcome.RESERVATION_DECIDED, existing, NOW)));
+        when(outcomeMessages.findByReservationId(existing)).thenReturn(Optional.of(MESSAGE));
+        record("publish").when(publisher).publish(MESSAGE);
+
+        ReserveStockOutcome outcome = service.reserve(command(line("SKU-001", 3)));
+
+        assertThat(outcome).isEqualTo(new ReserveStockOutcome.Redelivered(existing));
+        assertThat(journal).containsExactly("begin", "commit", "publish");
+        verify(stockItems, never()).lockAllOrderedByProductId(anySet());
+        verify(reservations, never()).save(any());
+        verify(processedEvents, never()).save(any());
+        verify(outcomeMessages, never()).save(any(), any());
+    }
+
+    @Test
+    @DisplayName("should do nothing for a redelivered event that was ignored as a duplicate order")
+    void shouldIgnoreRedeliveredDuplicate() {
+        ReservationId existing = ReservationId.newId();
+        when(processedEvents.find(EVENT_ID))
+                .thenReturn(Optional.of(
+                        new ProcessedEvent(EVENT_ID, TOPIC, ProcessedOutcome.DUPLICATE_ORDER_IGNORED, existing, NOW)));
+
+        ReserveStockOutcome outcome = service.reserve(command(line("SKU-001", 3)));
+
+        assertThat(outcome).isEqualTo(new ReserveStockOutcome.DuplicateOrderIgnored(existing));
+        verify(publisher, never()).publish(any());
+        verify(stockItems, never()).lockAllOrderedByProductId(anySet());
+        verify(processedEvents, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("should ignore a new event for an order that already has a reservation and publish nothing")
+    void shouldIgnoreDuplicateOrder() {
+        Reservation existing = Reservation.restore(
+                ReservationId.newId(),
+                ORDER_ID,
+                ReservationStatus.RESERVED,
+                RequestedItems.consolidate(List.of(line("SKU-001", 1))),
+                NOW,
+                NOW);
+        when(reservations.findByOrderId(ORDER_ID)).thenReturn(Optional.of(existing));
+        ArgumentCaptor<ProcessedEvent> processed = ArgumentCaptor.forClass(ProcessedEvent.class);
+
+        ReserveStockOutcome outcome = service.reserve(command(line("SKU-001", 3)));
+
+        assertThat(outcome).isEqualTo(new ReserveStockOutcome.DuplicateOrderIgnored(existing.id()));
+        verify(processedEvents).save(processed.capture());
+        assertThat(processed.getValue())
+                .isEqualTo(new ProcessedEvent(
+                        EVENT_ID, TOPIC, ProcessedOutcome.DUPLICATE_ORDER_IGNORED, existing.id(), NOW));
+        verify(stockItems, never()).lockAllOrderedByProductId(anySet());
+        verify(reservations, never()).save(any());
+        verify(publisher, never()).publish(any());
+    }
+
+    @Test
+    @DisplayName("should fail loudly when a processed event has no stored outcome message")
+    void shouldFailWhenStoredOutcomeIsMissing() {
+        ReservationId existing = ReservationId.newId();
+        when(processedEvents.find(EVENT_ID))
+                .thenReturn(Optional.of(
+                        new ProcessedEvent(EVENT_ID, TOPIC, ProcessedOutcome.RESERVATION_DECIDED, existing, NOW)));
+
+        assertThatThrownBy(() -> service.reserve(command(line("SKU-001", 3))))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining(existing.toString());
+        verify(publisher, never()).publish(any());
     }
 
     private org.mockito.stubbing.Stubber record(String step) {

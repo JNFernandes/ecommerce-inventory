@@ -166,6 +166,52 @@ class ReserveStockComponentIT extends AbstractComponentIT {
         assertThat(stock().available("SKU-001")).contains(10);
     }
 
+    @Test
+    @DisplayName("should take stock once and republish the same outcome when the same message is redelivered")
+    void shouldHandleRedeliveryIdempotently() {
+        stock().given("SKU-001", 10);
+        UUID orderId = UUID.randomUUID();
+        String message = orderPlaced(UUID.randomUUID(), orderId, line("SKU-001", 3));
+
+        kafka().send(ORDER_PLACED, orderId.toString(), message);
+        kafka().awaitRecordsForOrder(STOCK_RESERVED, orderId, 1, Duration.ofSeconds(10));
+        kafka().send(ORDER_PLACED, orderId.toString(), message);
+        List<ConsumerRecord<String, String>> records =
+                kafka().awaitRecordsForOrder(STOCK_RESERVED, orderId, 2, Duration.ofSeconds(10));
+
+        assertThat(records).hasSize(2);
+        assertThat(TestKafkaClient.json(records.get(1).value()))
+                .isEqualTo(TestKafkaClient.json(records.get(0).value()));
+        assertThat(records.get(1).key()).isEqualTo(records.get(0).key());
+        assertThat(stock().available("SKU-001")).contains(7);
+        assertThat(count("reservations")).isEqualTo(1);
+        assertThat(count("processed_events")).isEqualTo(1);
+        assertThat(count("consumed_dead_letters")).isZero();
+        verify(reserveStockService(), times(2))
+                .reserve(argThat(command -> command.orderId().value().equals(orderId)));
+    }
+
+    @Test
+    @DisplayName("should ignore a new event for an order that already has a reservation and publish nothing")
+    void shouldIgnoreDuplicateOrder() {
+        stock().given("SKU-001", 10);
+        UUID orderId = UUID.randomUUID();
+        kafka().send(ORDER_PLACED, orderId.toString(), orderPlaced(UUID.randomUUID(), orderId, line("SKU-001", 3)));
+        kafka().awaitRecordsForOrder(STOCK_RESERVED, orderId, 1, Duration.ofSeconds(10));
+
+        kafka().send(ORDER_PLACED, orderId.toString(), orderPlaced(UUID.randomUUID(), orderId, line("SKU-001", 5)));
+        await().atMost(Duration.ofSeconds(10))
+                .until(() -> count("processed_events where outcome = 'DUPLICATE_ORDER_IGNORED'") == 1);
+
+        assertThat(kafka().recordsForOrder(STOCK_RESERVED, orderId)).hasSize(1);
+        assertThat(kafka().recordsForOrder(STOCK_REJECTED, orderId)).isEmpty();
+        assertThat(stock().available("SKU-001")).contains(7);
+        assertThat(count("reservations")).isEqualTo(1);
+        assertThat(count("consumed_dead_letters")).isZero();
+        verify(reserveStockService(), times(2))
+                .reserve(argThat(command -> command.orderId().value().equals(orderId)));
+    }
+
     /**
      * Places an order, waits for its stock-rejected message and checks what every rejection shares:
      * one REJECTED reservation, key = aggregateId = reservation id, exact field set, no dead letter,

@@ -13,4 +13,20 @@ public sealed interface ReserveStockOutcome {
      * @param status reserved or rejected
      */
     record Decided(ReservationId reservationId, ReservationStatus status) implements ReserveStockOutcome {}
+
+    /**
+     * The event was already processed: nothing changed and the stored outcome was republished with its
+     * original event id (FR-016).
+     *
+     * @param reservationId the reservation the event had created
+     */
+    record Redelivered(ReservationId reservationId) implements ReserveStockOutcome {}
+
+    /**
+     * The order already had a reservation: the event was recorded and ignored, nothing was published
+     * (FR-014).
+     *
+     * @param existingReservationId the reservation the order already has
+     */
+    record DuplicateOrderIgnored(ReservationId existingReservationId) implements ReserveStockOutcome {}
 }
