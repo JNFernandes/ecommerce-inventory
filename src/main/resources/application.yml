@@ -21,6 +21,9 @@ spring:
   flyway:
     enabled: true
     locations: classpath:db/migration
+    # The local profile adds a repeatable seed migration (db/local). Tolerate it being absent when the
+    # same database later runs without that profile; every other validation rule stays as default.
+    ignore-migration-patterns: "*:future,repeatable:missing"
 
   kafka:
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}

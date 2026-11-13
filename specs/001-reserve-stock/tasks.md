@@ -245,9 +245,9 @@ dead-letter row (attempts 1) and the valid order reserved.
 **Independent Test**: Start with `.\mvnw.cmd spring-boot:run` against ecommerce-infra; the five
 products exist with 10/25/100/5/0; restarting does not reset them.
 
-- [ ] T061 [P] [US6] Create `R/db/local/R__seed_local_stock.sql` inserting SKU-001 10, SKU-002 25, SKU-003 100, SKU-004 5, SKU-005 0 with `ON CONFLICT (product_id) DO NOTHING`, and `R/application-local.yml` setting `spring.flyway.locations: classpath:db/migration,classpath:db/local` (research R9, FR-026)
-- [ ] T062 [US6] In `pom.xml` configure `spring-boot-maven-plugin` with `<configuration><profiles><profile>local</profile></profiles></configuration>` so `spring-boot:run` uses the `local` profile; Docker and tests are unaffected
-- [ ] T063 [P] [US6] Write `T/infrastructure/persistence/LocalSeedIT.java`: with `@ActiveProfiles("local")` the five products exist with the documented quantities; after changing SKU-003 to 42 and re-running Flyway `migrate`, SKU-003 stays 42 and there are still five rows; and add an assertion to `T/infrastructure/persistence/SchemaMigrationIT.java` that without the profile `stock_items` is empty
+- [X] T061 [P] [US6] Create `R/db/local/R__seed_local_stock.sql` inserting SKU-001 10, SKU-002 25, SKU-003 100, SKU-004 5, SKU-005 0 with `ON CONFLICT (product_id) DO NOTHING`, and `R/application-local.yml` setting `spring.flyway.locations: classpath:db/migration,classpath:db/local` (research R9, FR-026)
+- [X] T062 [US6] In `pom.xml` configure `spring-boot-maven-plugin` with `<configuration><profiles><profile>local</profile></profiles></configuration>` so `spring-boot:run` uses the `local` profile; Docker and tests are unaffected
+- [X] T063 [P] [US6] Write `T/infrastructure/persistence/LocalSeedIT.java`: with `@ActiveProfiles("local")` the five products exist with the documented quantities; after changing SKU-003 to 42 and re-running Flyway `migrate`, SKU-003 stays 42 and there are still five rows; and add an assertion to `T/infrastructure/persistence/SchemaMigrationIT.java` that without the profile `stock_items` is empty
 
 **Checkpoint**: All six stories work.
 

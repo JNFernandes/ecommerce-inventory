@@ -7,6 +7,7 @@ import com.ecommerce.inventory.support.AbstractPostgresIT;
 import com.ecommerce.inventory.support.DatabaseCleaner;
 import java.util.List;
 import java.util.UUID;
+import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -18,6 +19,9 @@ class SchemaMigrationIT extends AbstractPostgresIT {
 
     @Autowired
     private JdbcTemplate jdbc;
+
+    @Autowired
+    private Flyway flyway;
 
     @BeforeEach
     void clean() {
@@ -31,6 +35,14 @@ class SchemaMigrationIT extends AbstractPostgresIT {
                 "select version from flyway_schema_history where success order by installed_rank", String.class);
 
         assertThat(versions).containsSubsequence("1", "2");
+    }
+
+    @Test
+    @DisplayName("should not load the local sample products without the local profile (FR-026)")
+    void shouldNotSeedWithoutLocalProfile() {
+        assertThat(flyway.getConfiguration().getLocations())
+                .extracting(Object::toString)
+                .containsExactly("classpath:db/migration");
     }
 
     @Test
