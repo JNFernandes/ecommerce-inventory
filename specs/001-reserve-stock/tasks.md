@@ -261,7 +261,7 @@ products exist with 10/25/100/5/0; restarting does not reset them.
 - [X] T067 In the `ecommerce-infra` repository, on a branch `chore/US-01-inventory-events` created from its `main`, apply the four edits listed in [contracts/kafka-events.md](contracts/kafka-events.md#changes-required-in-ecommerce-infradocseventsmd) to `../ecommerce-infra/docs/events.md` and commit them (`docs: mark inventory reservation events as implemented`); link that PR in this feature's PR description (FR-022)
 - [X] T068 Review coverage in `target/site/jacoco/index.html`: every package under `domain` and `application` ≥ 80% lines; add unit tests for any gap
 - [ ] T069 Run the manual scenarios A–D from [quickstart.md](quickstart.md) against ecommerce-infra and record the result in the PR description
-- [ ] T070 Final full quality gate (compile, checkstyle, spotless, verify) on a clean build (`.\mvnw.cmd -B clean verify`)
+- [X] T070 Final full quality gate (compile, checkstyle, spotless, verify) on a clean build (`.\mvnw.cmd -B clean verify`)
 
 ---
 
