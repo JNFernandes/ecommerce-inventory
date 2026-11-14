@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.ecommerce.inventory.application.port.OutboundMessage;
 import com.ecommerce.inventory.domain.event.StockRejected;
+import com.ecommerce.inventory.domain.event.StockReleased;
 import com.ecommerce.inventory.domain.event.StockReserved;
 import com.ecommerce.inventory.domain.model.FailureKind;
 import com.ecommerce.inventory.domain.model.ItemFailure;
@@ -38,6 +39,39 @@ class JsonOutboundMessageFactoryTest {
                     .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS)
                     .build(),
             KafkaOutboundMessagePublisherTest.properties(Duration.ofSeconds(1)));
+
+    @Test
+    @DisplayName("should map StockReleased to inventory.stock-released with exactly the contract fields")
+    void shouldProduceReleasedContractFields() {
+        StockReleased event = new StockReleased(
+                RESERVATION_ID,
+                ORDER_ID,
+                List.of(
+                        new RequestedItem(new ProductId("SKU-001"), new Quantity(3)),
+                        new RequestedItem(new ProductId("SKU-002"), new Quantity(5))),
+                RESERVED_AT);
+
+        OutboundMessage message = factory.create(event);
+        JsonNode json = TestKafkaClient.json(message.payload());
+
+        assertThat(message.topic()).isEqualTo("inventory.stock-released");
+        assertThat(message.key()).isEqualTo(RESERVATION_ID.toString());
+        List<String> fields = new ArrayList<>();
+        json.fieldNames().forEachRemaining(fields::add);
+        assertThat(fields)
+                .containsExactly("eventId", "occurredAt", "aggregateId", "version", "orderId", "items", "releasedAt");
+        assertThat(json.get("eventId").asText()).isEqualTo(message.eventId().toString());
+        assertThat(json.get("aggregateId").asText()).isEqualTo(RESERVATION_ID.toString());
+        assertThat(json.get("orderId").asText()).isEqualTo(ORDER_ID.toString());
+        assertThat(json.get("version").asInt()).isEqualTo(1);
+        assertThat(json.get("occurredAt").asText())
+                .isEqualTo(json.get("releasedAt").asText());
+        assertThat(json.get("items")).hasSize(2);
+        List<String> itemFields = new ArrayList<>();
+        json.get("items").get(0).fieldNames().forEachRemaining(itemFields::add);
+        assertThat(itemFields).containsExactly("productId", "quantity");
+        assertThat(json.get("items").get(1).get("quantity").asLong()).isEqualTo(5);
+    }
 
     @Test
     @DisplayName("should map StockReserved to inventory.stock-reserved keyed by the reservation id")

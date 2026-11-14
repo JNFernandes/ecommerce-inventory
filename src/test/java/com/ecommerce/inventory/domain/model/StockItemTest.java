@@ -61,4 +61,23 @@ class StockItemTest {
     void shouldRefuseNegativeInitialQuantity() {
         assertThatThrownBy(() -> new StockItem(SKU, -1)).isInstanceOf(InvalidQuantityException.class);
     }
+
+    @Test
+    @DisplayName("should add a released quantity back to the available stock")
+    void shouldRelease() {
+        StockItem stock = new StockItem(SKU, 7);
+
+        stock.release(new Quantity(3));
+
+        assertThat(stock.availableQuantity()).isEqualTo(10);
+    }
+
+    @Test
+    @DisplayName("should refuse a release that would exceed the maximum stock quantity and keep the quantity")
+    void shouldRefuseReleaseOverflow() {
+        StockItem stock = new StockItem(SKU, Integer.MAX_VALUE - 1);
+
+        assertThatThrownBy(() -> stock.release(new Quantity(2))).isInstanceOf(InvalidQuantityException.class);
+        assertThat(stock.availableQuantity()).isEqualTo(Integer.MAX_VALUE - 1);
+    }
 }

@@ -3,6 +3,7 @@ package com.ecommerce.inventory.support;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 
+import com.ecommerce.inventory.application.ReleaseStockService;
 import com.ecommerce.inventory.application.ReserveStockService;
 import com.ecommerce.inventory.application.port.OutboundMessagePublisher;
 import java.time.Duration;
@@ -47,6 +48,9 @@ public abstract class AbstractComponentIT {
 
     @MockitoSpyBean
     private ReserveStockService reserveStockService;
+
+    @MockitoSpyBean
+    private ReleaseStockService releaseStockService;
 
     @MockitoSpyBean
     private OutboundMessagePublisher publisher;
@@ -157,6 +161,15 @@ public abstract class AbstractComponentIT {
      */
     protected ReserveStockService reserveStockService() {
         return reserveStockService;
+    }
+
+    /**
+     * Spy on the release-stock use case, reset after each test.
+     *
+     * @return the spy
+     */
+    protected ReleaseStockService releaseStockService() {
+        return releaseStockService;
     }
 
     /**
