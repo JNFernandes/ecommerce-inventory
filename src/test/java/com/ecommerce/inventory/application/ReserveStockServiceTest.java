@@ -5,23 +5,19 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.ArgumentMatchers.anySet;
-import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
-import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.ecommerce.inventory.application.port.OutboundDeadLetterRepository;
+import com.ecommerce.inventory.application.port.OrderLock;
 import com.ecommerce.inventory.application.port.OutboundMessage;
 import com.ecommerce.inventory.application.port.OutboundMessageFactory;
-import com.ecommerce.inventory.application.port.OutboundMessagePublisher;
 import com.ecommerce.inventory.application.port.OutcomeMessageRepository;
 import com.ecommerce.inventory.application.port.ProcessedEvent;
 import com.ecommerce.inventory.application.port.ProcessedEventRepository;
 import com.ecommerce.inventory.application.port.ProcessedOutcome;
-import com.ecommerce.inventory.application.port.PublishFailedException;
 import com.ecommerce.inventory.domain.event.StockRejected;
 import com.ecommerce.inventory.domain.event.StockReserved;
 import com.ecommerce.inventory.domain.model.OrderId;
@@ -33,10 +29,10 @@ import com.ecommerce.inventory.domain.model.Reservation;
 import com.ecommerce.inventory.domain.model.ReservationId;
 import com.ecommerce.inventory.domain.model.ReservationStatus;
 import com.ecommerce.inventory.domain.model.StockItem;
+import com.ecommerce.inventory.domain.repository.CancellationMarkerRepository;
 import com.ecommerce.inventory.domain.repository.ReservationRepository;
 import com.ecommerce.inventory.domain.repository.StockItemRepository;
 import java.time.Clock;
-import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
@@ -54,10 +50,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Captor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.transaction.TransactionStatus;
-import org.springframework.transaction.support.SimpleTransactionStatus;
-import org.springframework.transaction.support.TransactionCallback;
-import org.springframework.transaction.support.TransactionOperations;
+import org.mockito.stubbing.Stubber;
 
 @ExtendWith(MockitoExtension.class)
 class ReserveStockServiceTest {
@@ -68,13 +61,15 @@ class ReserveStockServiceTest {
     private static final String TOPIC = "orders.order-placed";
     private static final OutboundMessage MESSAGE =
             new OutboundMessage(UUID.randomUUID(), "inventory.stock-reserved", "key", "{}");
-    private static final Duration FIRST_RETRY_DELAY = Duration.ofSeconds(30);
 
     @Mock
     private StockItemRepository stockItems;
 
     @Mock
     private ReservationRepository reservations;
+
+    @Mock
+    private CancellationMarkerRepository cancellationMarkers;
 
     @Mock
     private OutcomeMessageRepository outcomeMessages;
@@ -86,10 +81,10 @@ class ReserveStockServiceTest {
     private OutboundMessageFactory messageFactory;
 
     @Mock
-    private OutboundMessagePublisher publisher;
+    private OutcomePublisher outcomePublisher;
 
     @Mock
-    private OutboundDeadLetterRepository outboundDeadLetters;
+    private OrderLock orderLock;
 
     @Captor
     private ArgumentCaptor<Set<ProductId>> lockedIds;
@@ -103,97 +98,40 @@ class ReserveStockServiceTest {
         service = new ReserveStockService(
                 stockItems,
                 reservations,
+                cancellationMarkers,
                 outcomeMessages,
                 processedEvents,
                 messageFactory,
-                publisher,
-                outboundDeadLetters,
-                new DeadLetterPolicy(FIRST_RETRY_DELAY),
+                outcomePublisher,
+                orderLock,
                 new JournalingTransactions(journal),
                 Clock.fixed(NOW, ZoneOffset.UTC));
     }
 
     @Test
-    @DisplayName("should store the outcome as an outbound dead letter and still succeed when publishing fails")
-    void shouldDeadLetterFailedPublish() {
-        givenStock("SKU-001", 10);
-        when(messageFactory.create(any(StockReserved.class))).thenReturn(MESSAGE);
-        doThrow(new PublishFailedException("Could not publish", new IllegalStateException("broker down")))
-                .when(publisher)
-                .publish(MESSAGE);
-
-        ReserveStockOutcome outcome = service.reserve(command(line("SKU-001", 3)));
-
-        assertThat(outcome).isInstanceOf(ReserveStockOutcome.Decided.class);
-        verify(outboundDeadLetters)
-                .recordFailure(
-                        eq(MESSAGE),
-                        argThat(error -> error.contains("Could not publish") && error.contains("broker down")),
-                        eq(NOW.plus(FIRST_RETRY_DELAY)));
-    }
-
-    @Test
-    @DisplayName("should log and not throw when storing the outbound dead letter also fails")
-    void shouldNotThrowWhenDeadLetterStoreFails() {
-        givenStock("SKU-001", 10);
-        when(messageFactory.create(any(StockReserved.class))).thenReturn(MESSAGE);
-        doThrow(new PublishFailedException("Could not publish", new IllegalStateException("broker down")))
-                .when(publisher)
-                .publish(MESSAGE);
-        doThrow(new IllegalStateException("database down"))
-                .when(outboundDeadLetters)
-                .recordFailure(any(), any(), any());
-
-        ReserveStockOutcome outcome = service.reserve(command(line("SKU-001", 3)));
-
-        assertThat(outcome).isInstanceOf(ReserveStockOutcome.Decided.class);
-    }
-
-    @Test
-    @DisplayName("should dead-letter a failing republish of a redelivered event")
-    void shouldDeadLetterFailedRepublish() {
-        ReservationId existing = ReservationId.newId();
-        when(processedEvents.find(EVENT_ID))
-                .thenReturn(Optional.of(
-                        new ProcessedEvent(EVENT_ID, TOPIC, ProcessedOutcome.RESERVATION_DECIDED, existing, NOW)));
-        when(outcomeMessages.findByReservationId(existing)).thenReturn(Optional.of(MESSAGE));
-        doThrow(new PublishFailedException("Could not publish", new IllegalStateException("broker down")))
-                .when(publisher)
-                .publish(MESSAGE);
-
-        ReserveStockOutcome outcome = service.reserve(command(line("SKU-001", 3)));
-
-        assertThat(outcome).isEqualTo(new ReserveStockOutcome.Redelivered(existing));
-        verify(outboundDeadLetters).recordFailure(eq(MESSAGE), any(), eq(NOW.plus(FIRST_RETRY_DELAY)));
-    }
-
-    @Test
-    @DisplayName("should not dead-letter anything when publishing succeeds")
-    void shouldNotDeadLetterOnSuccess() {
-        givenStock("SKU-001", 10);
-        when(messageFactory.create(any(StockReserved.class))).thenReturn(MESSAGE);
-
-        service.reserve(command(line("SKU-001", 3)));
-
-        verify(outboundDeadLetters, never()).recordFailure(any(), any(), any());
-    }
-
-    @Test
-    @DisplayName("should save stock, reservation, outcome and processed event in one transaction, then publish")
+    @DisplayName("should lock the order, save everything in one transaction, then hand the outcome to the publisher")
     void shouldSaveInTransactionThenPublish() {
         givenStock("SKU-001", 10, "SKU-002", 25);
         when(messageFactory.create(any(StockReserved.class))).thenReturn(MESSAGE);
+        record("lockOrder").when(orderLock).lock(ORDER_ID);
         record("saveStock").when(stockItems).saveAll(anyCollection());
         record("saveReservation").when(reservations).save(any(Reservation.class));
         record("saveOutcome").when(outcomeMessages).save(any(), eq(MESSAGE));
         record("saveProcessed").when(processedEvents).save(any(ProcessedEvent.class));
-        record("publish").when(publisher).publish(MESSAGE);
+        record("publish").when(outcomePublisher).publish(MESSAGE, ORDER_ID);
 
         ReserveStockOutcome outcome = service.reserve(command(line("SKU-001", 3), line("SKU-002", 5)));
 
         assertThat(journal)
                 .containsExactly(
-                        "begin", "saveStock", "saveReservation", "saveOutcome", "saveProcessed", "commit", "publish");
+                        "begin",
+                        "lockOrder",
+                        "saveStock",
+                        "saveReservation",
+                        "saveOutcome",
+                        "saveProcessed",
+                        "commit",
+                        "publish");
         assertThat(outcome)
                 .isInstanceOfSatisfying(
                         ReserveStockOutcome.Decided.class,
@@ -201,7 +139,25 @@ class ReserveStockServiceTest {
     }
 
     @Test
-    @DisplayName("should record the inbound event as processed with the new reservation id")
+    @DisplayName("should take the order lock before reading the processed event")
+    void shouldLockBeforeReading() {
+        record("lockOrder").when(orderLock).lock(ORDER_ID);
+        doAnswer(invocation -> {
+                    journal.add("findProcessed");
+                    return Optional.empty();
+                })
+                .when(processedEvents)
+                .find(EVENT_ID);
+        givenStock("SKU-001", 10);
+        when(messageFactory.create(any(StockReserved.class))).thenReturn(MESSAGE);
+
+        service.reserve(command(line("SKU-001", 1)));
+
+        assertThat(journal).startsWith("begin", "lockOrder", "findProcessed");
+    }
+
+    @Test
+    @DisplayName("should record the processed event with the reservation id and the outcome message id")
     void shouldRecordProcessedEvent() {
         givenStock("SKU-001", 10);
         when(messageFactory.create(any(StockReserved.class))).thenReturn(MESSAGE);
@@ -213,7 +169,12 @@ class ReserveStockServiceTest {
         ReserveStockOutcome.Decided decided = (ReserveStockOutcome.Decided) outcome;
         assertThat(processed.getValue())
                 .isEqualTo(new ProcessedEvent(
-                        EVENT_ID, TOPIC, ProcessedOutcome.RESERVATION_DECIDED, decided.reservationId(), NOW));
+                        EVENT_ID,
+                        TOPIC,
+                        ProcessedOutcome.RESERVATION_DECIDED,
+                        Optional.of(decided.reservationId()),
+                        Optional.of(MESSAGE.eventId()),
+                        NOW));
         verify(outcomeMessages).save(decided.reservationId(), MESSAGE);
     }
 
@@ -230,7 +191,7 @@ class ReserveStockServiceTest {
         assertThatThrownBy(() -> service.reserve(command(line("SKU-001", 3))))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessage("database down");
-        verify(publisher, never()).publish(any());
+        verify(outcomePublisher, never()).publish(any(), any());
         assertThat(journal).containsExactly("begin", "rollback");
     }
 
@@ -245,7 +206,7 @@ class ReserveStockServiceTest {
         record("saveReservation").when(reservations).save(any(Reservation.class));
         record("saveOutcome").when(outcomeMessages).save(any(), eq(rejectedMessage));
         record("saveProcessed").when(processedEvents).save(any(ProcessedEvent.class));
-        record("publish").when(publisher).publish(rejectedMessage);
+        record("publish").when(outcomePublisher).publish(rejectedMessage, ORDER_ID);
 
         ReserveStockOutcome outcome = service.reserve(command(line("SKU-004", 6), line("SKU-999", 1)));
 
@@ -271,14 +232,12 @@ class ReserveStockServiceTest {
     }
 
     @Test
-    @DisplayName("should republish the stored outcome and change nothing when the event was already processed")
+    @DisplayName("should republish the stored outcome by its event id and change nothing on redelivery")
     void shouldRepublishStoredOutcomeOnRedelivery() {
         ReservationId existing = ReservationId.newId();
-        when(processedEvents.find(EVENT_ID))
-                .thenReturn(Optional.of(
-                        new ProcessedEvent(EVENT_ID, TOPIC, ProcessedOutcome.RESERVATION_DECIDED, existing, NOW)));
-        when(outcomeMessages.findByReservationId(existing)).thenReturn(Optional.of(MESSAGE));
-        record("publish").when(publisher).publish(MESSAGE);
+        givenProcessed(ProcessedOutcome.RESERVATION_DECIDED, Optional.of(existing), Optional.of(MESSAGE.eventId()));
+        when(outcomeMessages.findByEventId(MESSAGE.eventId())).thenReturn(Optional.of(MESSAGE));
+        record("publish").when(outcomePublisher).publish(MESSAGE, ORDER_ID);
 
         ReserveStockOutcome outcome = service.reserve(command(line("SKU-001", 3)));
 
@@ -291,17 +250,29 @@ class ReserveStockServiceTest {
     }
 
     @Test
+    @DisplayName("should fail loudly when a decided event has no stored outcome message")
+    void shouldFailWhenStoredOutcomeIsMissing() {
+        givenProcessed(
+                ProcessedOutcome.RESERVATION_DECIDED,
+                Optional.of(ReservationId.newId()),
+                Optional.of(MESSAGE.eventId()));
+
+        assertThatThrownBy(() -> service.reserve(command(line("SKU-001", 3))))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining(MESSAGE.eventId().toString());
+        verify(outcomePublisher, never()).publish(any(), any());
+    }
+
+    @Test
     @DisplayName("should do nothing for a redelivered event that was ignored as a duplicate order")
     void shouldIgnoreRedeliveredDuplicate() {
         ReservationId existing = ReservationId.newId();
-        when(processedEvents.find(EVENT_ID))
-                .thenReturn(Optional.of(
-                        new ProcessedEvent(EVENT_ID, TOPIC, ProcessedOutcome.DUPLICATE_ORDER_IGNORED, existing, NOW)));
+        givenProcessed(ProcessedOutcome.DUPLICATE_ORDER_IGNORED, Optional.of(existing), Optional.empty());
 
         ReserveStockOutcome outcome = service.reserve(command(line("SKU-001", 3)));
 
         assertThat(outcome).isEqualTo(new ReserveStockOutcome.DuplicateOrderIgnored(existing));
-        verify(publisher, never()).publish(any());
+        verify(outcomePublisher, never()).publish(any(), any());
         verify(stockItems, never()).lockAllOrderedByProductId(anySet());
         verify(processedEvents, never()).save(any());
     }
@@ -325,27 +296,61 @@ class ReserveStockServiceTest {
         verify(processedEvents).save(processed.capture());
         assertThat(processed.getValue())
                 .isEqualTo(new ProcessedEvent(
-                        EVENT_ID, TOPIC, ProcessedOutcome.DUPLICATE_ORDER_IGNORED, existing.id(), NOW));
+                        EVENT_ID,
+                        TOPIC,
+                        ProcessedOutcome.DUPLICATE_ORDER_IGNORED,
+                        Optional.of(existing.id()),
+                        Optional.empty(),
+                        NOW));
         verify(stockItems, never()).lockAllOrderedByProductId(anySet());
         verify(reservations, never()).save(any());
-        verify(publisher, never()).publish(any());
+        verify(outcomePublisher, never()).publish(any(), any());
     }
 
     @Test
-    @DisplayName("should fail loudly when a processed event has no stored outcome message")
-    void shouldFailWhenStoredOutcomeIsMissing() {
-        ReservationId existing = ReservationId.newId();
-        when(processedEvents.find(EVENT_ID))
-                .thenReturn(Optional.of(
-                        new ProcessedEvent(EVENT_ID, TOPIC, ProcessedOutcome.RESERVATION_DECIDED, existing, NOW)));
+    @DisplayName("should reserve nothing and publish nothing for an order cancelled before its placement")
+    void shouldIgnorePlacementOfCancelledOrder() {
+        when(cancellationMarkers.exists(ORDER_ID)).thenReturn(true);
+        ArgumentCaptor<ProcessedEvent> processed = ArgumentCaptor.forClass(ProcessedEvent.class);
 
-        assertThatThrownBy(() -> service.reserve(command(line("SKU-001", 3))))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining(existing.toString());
-        verify(publisher, never()).publish(any());
+        ReserveStockOutcome outcome = service.reserve(command(line("SKU-001", 3)));
+
+        assertThat(outcome).isEqualTo(new ReserveStockOutcome.PlacementCancelled());
+        verify(processedEvents).save(processed.capture());
+        assertThat(processed.getValue())
+                .isEqualTo(new ProcessedEvent(
+                        EVENT_ID,
+                        TOPIC,
+                        ProcessedOutcome.PLACEMENT_CANCELLED,
+                        Optional.empty(),
+                        Optional.empty(),
+                        NOW));
+        verify(stockItems, never()).lockAllOrderedByProductId(anySet());
+        verify(reservations, never()).save(any());
+        verify(outcomePublisher, never()).publish(any(), any());
     }
 
-    private org.mockito.stubbing.Stubber record(String step) {
+    @Test
+    @DisplayName("should do nothing and not throw when a placement of a cancelled order is redelivered")
+    void shouldIgnoreRedeliveredPlacementOfCancelledOrder() {
+        givenProcessed(ProcessedOutcome.PLACEMENT_CANCELLED, Optional.empty(), Optional.empty());
+
+        ReserveStockOutcome outcome = service.reserve(command(line("SKU-001", 3)));
+
+        assertThat(outcome).isEqualTo(new ReserveStockOutcome.PlacementCancelled());
+        verify(outcomeMessages, never()).findByEventId(any());
+        verify(outcomePublisher, never()).publish(any(), any());
+        verify(processedEvents, never()).save(any());
+    }
+
+    private void givenProcessed(
+            ProcessedOutcome outcome, Optional<ReservationId> reservationId, Optional<UUID> outcomeEventId) {
+        when(processedEvents.find(EVENT_ID))
+                .thenReturn(
+                        Optional.of(new ProcessedEvent(EVENT_ID, TOPIC, outcome, reservationId, outcomeEventId, NOW)));
+    }
+
+    private Stubber record(String step) {
         return doAnswer(invocation -> {
             journal.add(step);
             return null;
@@ -367,29 +372,5 @@ class ReserveStockServiceTest {
 
     private static RequestedItem line(String productId, long quantity) {
         return new RequestedItem(new ProductId(productId), new Quantity(quantity));
-    }
-
-    /** Runs the callback directly and journals begin, commit or rollback. */
-    private static final class JournalingTransactions implements TransactionOperations {
-
-        private final List<String> journal;
-
-        JournalingTransactions(List<String> journal) {
-            this.journal = journal;
-        }
-
-        @Override
-        public <T> T execute(TransactionCallback<T> action) {
-            journal.add("begin");
-            TransactionStatus status = new SimpleTransactionStatus();
-            try {
-                T result = action.doInTransaction(status);
-                journal.add("commit");
-                return result;
-            } catch (RuntimeException e) {
-                journal.add("rollback");
-                throw e;
-            }
-        }
     }
 }

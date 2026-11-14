@@ -28,4 +28,14 @@ public class ReservationRepositoryAdapter implements ReservationRepository {
     public void save(Reservation reservation) {
         entityManager.persist(ReservationMapper.toEntity(reservation));
     }
+
+    @Override
+    public void update(Reservation reservation) {
+        ReservationEntity entity =
+                entityManager.find(ReservationEntity.class, reservation.id().value());
+        if (entity == null) {
+            throw new IllegalStateException("Reservation " + reservation.id() + " does not exist");
+        }
+        ReservationMapper.applyState(entity, reservation);
+    }
 }

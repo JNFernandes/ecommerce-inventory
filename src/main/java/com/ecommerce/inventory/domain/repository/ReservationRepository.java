@@ -21,4 +21,12 @@ public interface ReservationRepository {
      * @param reservation reservation to save
      */
     void save(Reservation reservation);
+
+    /**
+     * Saves the status, release time and update time of an existing reservation in the current
+     * transaction.
+     *
+     * @param reservation reservation previously loaded and changed
+     */
+    void update(Reservation reservation);
 }

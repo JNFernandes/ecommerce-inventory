@@ -17,7 +17,8 @@ class OrderPlacedMessageParserTest {
 
     private static final ValidatorFactory VALIDATORS = Validation.buildDefaultValidatorFactory();
 
-    private final OrderPlacedMessageParser parser = new OrderPlacedMessageParser(VALIDATORS.getValidator());
+    private final OrderPlacedMessageParser parser =
+            new OrderPlacedMessageParser(new StrictJsonParser(VALIDATORS.getValidator()));
 
     @AfterAll
     static void close() {

@@ -40,6 +40,9 @@ class ReservationEntity {
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt;
 
+    @Column(name = "released_at")
+    private Instant releasedAt;
+
     @OneToMany(mappedBy = "reservation", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.EAGER)
     @OrderBy("id.productId asc")
     private List<ReservationItemEntity> items = new ArrayList<>();
@@ -59,6 +62,16 @@ class ReservationEntity {
         this.rejectionReason = rejectionReason;
         this.createdAt = createdAt;
         this.updatedAt = updatedAt;
+    }
+
+    void applyState(ReservationStatus newStatus, Instant newReleasedAt, Instant newUpdatedAt) {
+        this.status = newStatus;
+        this.releasedAt = newReleasedAt;
+        this.updatedAt = newUpdatedAt;
+    }
+
+    Instant getReleasedAt() {
+        return releasedAt;
     }
 
     void addItem(String productId, long requestedQuantity, String failureKind, Integer availableAtDecision) {

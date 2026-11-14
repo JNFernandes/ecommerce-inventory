@@ -54,25 +54,37 @@ Kafka → **after the DB save** acknowledge the offset. Never publish inside the
 publish fails, write the outbound dead-letter record in its own transaction; never roll back the
 committed state.
 
-## Where things are (US-01 reserve stock)
+## Where things are (US-01 reserve, US-02 release)
 
-- `messaging/OrderPlacedListener` → `OrderPlacedMessageParser` (strict Jackson reader: quantities
-  must be JSON integers, `version` must be 1; failures throw `InvalidMessageException`) →
-  `application/ReserveStockService.reserve`.
-- `ReserveStockService`: inside one `TransactionOperations` block it checks `processed_events`
-  (known `eventId` → republish the stored outcome), then `reservations.order_id` (existing order →
-  record `DUPLICATE_ORDER_IGNORED`, publish nothing), then locks stock, calls `Reservation.decide`,
-  saves stock, reservation, `outcome_messages` and `processed_events`. After the commit:
-  `publishOrDeadLetter`.
-- `domain/model/Reservation.decide`: all business rules (consolidation via `RequestedItems`,
-  all-or-nothing, `FailureKind`, `RejectionReason` with the three exact wire texts).
+- Listeners: `messaging/OrderPlacedListener` and `OrderCancelledListener`, each with a parser that
+  delegates to `StrictJsonParser` (quantities must be JSON integers, `version` must be 1; failures
+  throw `InvalidMessageException`) → one application service call → acknowledge.
+- **Both services start their transaction with `OrderLock.lock(orderId)`** (per-order advisory lock,
+  ADR 0005), then check `processed_events`. Any new handler touching an order must do the same. Lock
+  order is always: order lock, then stock rows by `productId`.
+- `ReserveStockService`: lock → processed event (only `RESERVATION_DECIDED` republishes its stored
+  message, found by `outcome_event_id`; every other outcome does nothing) → cancellation marker
+  (→ `PLACEMENT_CANCELLED`, nothing reserved or published) → existing reservation
+  (→ `DUPLICATE_ORDER_IGNORED`) → lock stock, `Reservation.decide`, save stock, reservation,
+  `outcome_messages`, `processed_events`.
+- `ReleaseStockService`: lock → processed event (only `STOCK_RELEASED` republishes) → no reservation:
+  store a `cancellation_markers` row (`CANCELLATION_RECORDED`) or, if one exists,
+  `CANCELLATION_IGNORED` → reservation: lock its stock, `Reservation.release` (`RELEASED` /
+  `NOTHING_RESERVED` / `ALREADY_RELEASED`), save.
+- `OutcomePublisher` is the only way outcome messages leave the service (publish after commit;
+  failure → `outbound_dead_letters` in its own transaction). Never call the Kafka publisher directly.
+- `domain/model/Reservation`: all business rules (`decide`: consolidation, all-or-nothing,
+  `FailureKind`, `RejectionReason` with the three exact wire texts; `release`: only
+  `RESERVED → RELEASED`, never twice). `ProcessedEvent.outcomeEventId` is present exactly for
+  `RESERVATION_DECIDED` and `STOCK_RELEASED`.
 - `infrastructure/kafka/KafkaConfiguration`: the `DefaultErrorHandler` (exponential backoff,
   `ConsumedDeadLetterRecoverer`, `InvalidMessageException` not retryable, `commitRecovered`).
   `commitRecovered` only works with ack mode `manual_immediate`; don't change the ack mode.
 - `JsonOutboundMessageFactory` + `infrastructure/kafka/message/*Message` records: the JSON contract.
   Field order of the records is the JSON field order.
-- Tables: `stock_items`, `reservations`, `reservation_items`, `outcome_messages`,
-  `processed_events`, `outbound_dead_letters` (PENDING, for the US-03 worker),
+- Tables: `stock_items`, `reservations` (+ `released_at`), `reservation_items`,
+  `cancellation_markers`, `outcome_messages` (reserve and release outcomes), `processed_events`
+  (+ `outcome_event_id`), `outbound_dead_letters` (PENDING, for the US-03 worker),
   `consumed_dead_letters`.
 - Local profile (`application-local.yml`, activated by `spring-boot:run`): seeds SKU-001..SKU-005
   from `db/local/R__seed_local_stock.sql`. Never put seed data in `db/migration`.
@@ -86,6 +98,9 @@ committed state.
   repository method for it (ADR 0002). Never lock stock rows one by one.
 - One reservation per `orderId` (unique constraint). Release at most once; releasing something
   never reserved, rejected or already released is a logged no-op.
+- A cancellation that arrives before the placement leaves a marker; the later placement reserves
+  nothing. `PlaceCancelRaceIT` proves a cancelled order never ends `RESERVED`; it fails if the order
+  lock is removed.
 
 ## Event contracts
 
@@ -150,6 +165,6 @@ committed state.
 - ADRs in `docs/adr/` (`NNNN-short-title.md`, never renumbered, indexed in `docs/adr/README.md`,
   superseded ones kept). Current: 0001 PostgreSQL, 0002 ordered pessimistic locks, 0003 parallel
   saga participation, 0004 outcome stored with the reservation (publish after commit, republish on
-  redelivery).
+  redelivery), 0005 per-order lock and cancellation markers (placement vs cancellation race).
 - Feature specs, plans and tasks live in `specs/NNN-name/` (Spec Kit).
 - Keep `README.md`, this file and the `Dockerfile` up to date with behaviour changes.

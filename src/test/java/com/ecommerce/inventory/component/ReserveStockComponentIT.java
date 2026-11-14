@@ -8,7 +8,6 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
 import com.ecommerce.inventory.application.port.PublishFailedException;
-import com.ecommerce.inventory.messaging.OrderPlacedListener;
 import com.ecommerce.inventory.support.AbstractComponentIT;
 import com.ecommerce.inventory.support.TestKafkaClient;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -19,12 +18,8 @@ import java.util.UUID;
 import java.util.stream.Collectors;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.producer.RecordMetadata;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.kafka.config.KafkaListenerEndpointRegistry;
-import org.springframework.kafka.listener.MessageListenerContainer;
 
 /** Whole flow on real PostgreSQL and Kafka: order-placed consumed, stock reserved, outcome published. */
 class ReserveStockComponentIT extends AbstractComponentIT {
@@ -32,18 +27,6 @@ class ReserveStockComponentIT extends AbstractComponentIT {
     private static final String ORDER_PLACED = "orders.order-placed";
     private static final String STOCK_RESERVED = "inventory.stock-reserved";
     private static final String STOCK_REJECTED = "inventory.stock-rejected";
-
-    @Autowired
-    private KafkaListenerEndpointRegistry listeners;
-
-    @BeforeEach
-    void waitForListenerAssignment() {
-        MessageListenerContainer container = listeners.getListenerContainer(OrderPlacedListener.LISTENER_ID);
-        assertThat(container).isNotNull();
-        await().atMost(Duration.ofSeconds(60))
-                .until(() -> container.getAssignedPartitions() != null
-                        && !container.getAssignedPartitions().isEmpty());
-    }
 
     @Test
     @DisplayName("should reserve every item and publish stock-reserved within 2 seconds (SC-001)")
@@ -363,11 +346,6 @@ class ReserveStockComponentIT extends AbstractComponentIT {
                 .toList();
     }
 
-    private int count(String table) {
-        Integer count = jdbc().queryForObject("select count(*) from " + table, Integer.class);
-        return count == null ? 0 : count;
-    }
-
     private static Map<String, Long> quantities(JsonNode payload) {
         return java.util.stream.StreamSupport.stream(payload.get("items").spliterator(), false)
                 .collect(Collectors.toMap(
@@ -375,16 +353,5 @@ class ReserveStockComponentIT extends AbstractComponentIT {
                         item -> item.get("quantity").asLong(),
                         (a, b) -> a,
                         java.util.LinkedHashMap::new));
-    }
-
-    private static String line(String productId, int quantity) {
-        return "{\"productId\":\"" + productId + "\",\"quantity\":" + quantity + ",\"unitPrice\":1.5}";
-    }
-
-    private static String orderPlaced(UUID eventId, UUID orderId, String... lines) {
-        return "{\"eventId\":\"" + eventId + "\",\"occurredAt\":\"2026-11-13T10:15:30.123Z\","
-                + "\"aggregateId\":\"" + orderId + "\",\"version\":1,"
-                + "\"customerId\":\"" + UUID.randomUUID() + "\","
-                + "\"items\":[" + String.join(",", lines) + "],\"totalAmount\":10}";
     }
 }

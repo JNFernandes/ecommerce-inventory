@@ -65,6 +65,8 @@ inventory:
       order-placed: ${KAFKA_TOPIC_ORDER_PLACED:orders.order-placed}
       stock-reserved: ${KAFKA_TOPIC_STOCK_RESERVED:inventory.stock-reserved}
       stock-rejected: ${KAFKA_TOPIC_STOCK_REJECTED:inventory.stock-rejected}
+      order-cancelled: ${KAFKA_TOPIC_ORDER_CANCELLED:orders.order-cancelled}
+      stock-released: ${KAFKA_TOPIC_STOCK_RELEASED:inventory.stock-released}
     # Inbound retries before a message is dead-lettered (research R6).
     consumer-retry:
       max-retries: 3

@@ -91,6 +91,23 @@ class ReservationReserveTest {
     }
 
     @Test
+    @DisplayName("should refuse to restore a RELEASED reservation without its release time")
+    void shouldRefuseReleasedWithoutReleaseTime() {
+        assertThatThrownBy(() -> Reservation.restore(
+                        RESERVATION_ID, ORDER_ID, ReservationStatus.RELEASED, items(line("SKU-001", 3)), NOW, NOW))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    @DisplayName("should have no release time while reserved")
+    void shouldHaveNoReleaseTimeWhileReserved() {
+        Reservation reservation =
+                Reservation.decide(RESERVATION_ID, ORDER_ID, items(line("SKU-001", 3)), stock("SKU-001", 10), NOW);
+
+        assertThat(reservation.releasedAt()).isEmpty();
+    }
+
+    @Test
     @DisplayName("should restore a persisted reservation without raising events")
     void shouldRestoreWithoutEvents() {
         Reservation restored = Reservation.restore(

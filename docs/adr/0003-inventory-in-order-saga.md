@@ -2,6 +2,7 @@
 
 - **Status**: Accepted
 - **Date**: 2026-11-13
+- **Amended**: 2026-11-14 — open point resolved by ADR 0005; the decision is unchanged.
 
 ## Context
 
@@ -52,6 +53,6 @@ Inventory never calls Orders or Payments directly.
 - **Open point for the release story:** `orders.order-placed` and `orders.order-cancelled` are
   different topics, so Inventory can receive the cancellation **before** the placement. Ignoring
   that early cancellation and then reserving on the late `OrderPlaced` would leave stock reserved
-  for a cancelled order. The release user story must decide how to prevent this (for example, by
-  recording the cancellation so that a later `OrderPlaced` for the same order is rejected) and
-  amend this ADR or add a new one.
+  for a cancelled order. **Resolved by ADR 0005**: an early cancellation stores a marker, a later
+  placement of that order reserves nothing, and a per-order lock makes this hold even when both
+  messages are processed at the same moment.

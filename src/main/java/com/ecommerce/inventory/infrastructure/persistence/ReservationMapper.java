@@ -49,7 +49,13 @@ final class ReservationMapper {
                     failure == null ? null : failure.kind().name(),
                     failure == null ? null : failure.available());
         }
+        applyState(entity, reservation);
         return entity;
+    }
+
+    /** Copies the mutable state (status, release time, update time) onto an entity. */
+    static void applyState(ReservationEntity entity, Reservation reservation) {
+        entity.applyState(reservation.status(), reservation.releasedAt().orElse(null), reservation.updatedAt());
     }
 
     static Reservation toDomain(ReservationEntity entity) {
@@ -60,7 +66,10 @@ final class ReservationMapper {
                 .toList());
         ReservationId id = new ReservationId(entity.getId());
         OrderId orderId = new OrderId(entity.getOrderId());
-        if (entity.getStatus() != ReservationStatus.REJECTED) {
+        if (entity.getStatus() == ReservationStatus.RELEASED) {
+            return Reservation.restoreReleased(id, orderId, items, entity.getCreatedAt(), entity.getReleasedAt());
+        }
+        if (entity.getStatus() == ReservationStatus.RESERVED) {
             return Reservation.restore(
                     id, orderId, entity.getStatus(), items, entity.getCreatedAt(), entity.getUpdatedAt());
         }
