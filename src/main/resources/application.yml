@@ -80,6 +80,16 @@ inventory:
   stock:
     # Upper bound on waiting for stock row locks (ADR 0002, research R2).
     lock-timeout: 5s
+  # Retry worker for outbound dead letters (US-03). Backoff after attempt n: base-delay x multiplier^(n-1),
+  # capped at max-delay; after max-attempts the row becomes EXHAUSTED.
+  outbound-retry:
+    enabled: ${OUTBOUND_RETRY_ENABLED:true}
+    interval: ${OUTBOUND_RETRY_INTERVAL:30s}
+    batch-size: ${OUTBOUND_RETRY_BATCH_SIZE:50}
+    max-attempts: ${OUTBOUND_RETRY_MAX_ATTEMPTS:10}
+    base-delay: ${OUTBOUND_RETRY_BASE_DELAY:30s}
+    multiplier: ${OUTBOUND_RETRY_MULTIPLIER:2.0}
+    max-delay: ${OUTBOUND_RETRY_MAX_DELAY:1h}
 
 server:
   port: ${SERVER_PORT:8081}  # 8080 is taken by kafka-ui in ecommerce-infra

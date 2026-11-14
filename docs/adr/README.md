@@ -23,3 +23,4 @@ requires (Documentation Standards).
 | [0003](0003-inventory-in-order-saga.md) | Inventory takes part in the order saga in parallel with Payments | Accepted |
 | [0004](0004-outcome-stored-with-reservation.md) | Outcome message stored with the reservation, published after commit | Accepted |
 | [0005](0005-per-order-serialisation.md) | Per-order serialisation of placement and cancellation | Accepted |
+| [0006](0006-outbound-retry-worker.md) | Outbound retry worker: one row per transaction with FOR UPDATE SKIP LOCKED | Accepted |

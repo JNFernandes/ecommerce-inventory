@@ -15,13 +15,35 @@ import org.springframework.validation.annotation.Validated;
  * @param kafka topics, inbound retry policy and publish timeout
  * @param outboundDeadLetter settings for events that could not be published
  * @param stock settings for stock row locking
+ * @param outboundRetry settings of the outbound dead-letter retry worker (US-03)
  */
 @Validated
 @ConfigurationProperties("inventory")
 public record InventoryProperties(
         @Valid @NotNull Kafka kafka,
         @Valid @NotNull OutboundDeadLetter outboundDeadLetter,
-        @Valid @NotNull Stock stock) {
+        @Valid @NotNull Stock stock,
+        @Valid @NotNull OutboundRetry outboundRetry) {
+
+    /**
+     * Outbound dead-letter retry worker settings (US-03 FR-016).
+     *
+     * @param enabled whether the worker runs on this instance
+     * @param interval delay between the end of one round and the start of the next
+     * @param batchSize maximum rows attempted per round
+     * @param maxAttempts worker attempts before a row becomes Exhausted
+     * @param baseDelay backoff delay after the first failed attempt
+     * @param multiplier factor applied to the delay after each further failure
+     * @param maxDelay upper bound for one backoff delay
+     */
+    public record OutboundRetry(
+            boolean enabled,
+            @NotNull Duration interval,
+            @Min(1) int batchSize,
+            @Min(1) int maxAttempts,
+            @NotNull Duration baseDelay,
+            @DecimalMin("1.0") double multiplier,
+            @NotNull Duration maxDelay) {}
 
     /**
      * Kafka settings.

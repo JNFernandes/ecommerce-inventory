@@ -19,5 +19,6 @@ public abstract class AbstractPostgresIT {
     @DynamicPropertySource
     static void unreachableKafka(DynamicPropertyRegistry registry) {
         registry.add("spring.kafka.bootstrap-servers", () -> "localhost:1");
+        registry.add("inventory.outbound-retry.enabled", () -> "false");
     }
 }

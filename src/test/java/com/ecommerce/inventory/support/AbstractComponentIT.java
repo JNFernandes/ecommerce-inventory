@@ -3,6 +3,7 @@ package com.ecommerce.inventory.support;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 
+import com.ecommerce.inventory.application.OutboundRetryService;
 import com.ecommerce.inventory.application.ReleaseStockService;
 import com.ecommerce.inventory.application.ReserveStockService;
 import com.ecommerce.inventory.application.port.OutboundMessagePublisher;
@@ -15,6 +16,8 @@ import org.springframework.boot.testcontainers.service.connection.ServiceConnect
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.kafka.config.KafkaListenerEndpointRegistry;
 import org.springframework.kafka.listener.MessageListenerContainer;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.kafka.ConfluentKafkaContainer;
@@ -31,15 +34,31 @@ import org.testcontainers.kafka.ConfluentKafkaContainer;
         properties = {
             "inventory.kafka.consumer-retry.max-retries=2",
             "inventory.kafka.consumer-retry.initial-interval=50ms",
-            "inventory.kafka.consumer-retry.max-interval=200ms"
+            "inventory.kafka.consumer-retry.max-interval=200ms",
+            "inventory.outbound-retry.interval=200ms",
+            "inventory.outbound-retry.base-delay=200ms",
+            "inventory.outbound-retry.max-delay=1s",
+            "inventory.outbound-retry.max-attempts=3"
         })
 public abstract class AbstractComponentIT {
 
-    @ServiceConnection
     static final PostgreSQLContainer<?> POSTGRES = PostgresTestContainer.instance();
 
     @ServiceConnection
     static final ConfluentKafkaContainer KAFKA = KafkaTestContainer.instance();
+
+    /**
+     * Own database: this context runs the retry worker and stays cached, so it must not see the rows of
+     * the PostgreSQL-only tests.
+     *
+     * @param registry test properties
+     */
+    @DynamicPropertySource
+    static void isolatedDatabase(DynamicPropertyRegistry registry) {
+        registry.add("spring.datasource.url", () -> PostgresTestContainer.isolatedDatabase("component_it"));
+        registry.add("spring.datasource.username", POSTGRES::getUsername);
+        registry.add("spring.datasource.password", POSTGRES::getPassword);
+    }
 
     private final TestKafkaClient kafka = new TestKafkaClient(KAFKA.getBootstrapServers());
 
@@ -54,6 +73,9 @@ public abstract class AbstractComponentIT {
 
     @MockitoSpyBean
     private OutboundMessagePublisher publisher;
+
+    @MockitoSpyBean
+    private OutboundRetryService outboundRetryService;
 
     @Autowired
     private KafkaListenerEndpointRegistry listeners;
@@ -86,6 +108,30 @@ public abstract class AbstractComponentIT {
     protected int count(String tableAndCondition) {
         Integer count = jdbcTemplate.queryForObject("select count(*) from " + tableAndCondition, Integer.class);
         return count == null ? 0 : count;
+    }
+
+    /**
+     * Inserts a {@code PENDING} outbound dead letter that is already due, as if a publish had failed.
+     *
+     * @param eventId event id of the stored message
+     * @param topic topic to republish to
+     * @param key message key
+     * @param payload JSON payload
+     * @return the id of the inserted row
+     */
+    protected UUID givenDueOutboundDeadLetter(UUID eventId, String topic, String key, String payload) {
+        UUID id = UUID.randomUUID();
+        jdbcTemplate.update(
+                "insert into outbound_dead_letters (id, event_id, topic, message_key, payload, status, retry_count,"
+                        + " next_retry_at, last_error, created_at, updated_at)"
+                        + " values (?, ?, ?, ?, cast(? as jsonb), 'PENDING', 0, now() - interval '1 second',"
+                        + " 'broker down', now(), now())",
+                id,
+                eventId,
+                topic,
+                key,
+                payload);
+        return id;
     }
 
     /**
@@ -179,5 +225,14 @@ public abstract class AbstractComponentIT {
      */
     protected OutboundMessagePublisher publisher() {
         return publisher;
+    }
+
+    /**
+     * Spy on the outbound retry worker service, reset after each test.
+     *
+     * @return the spy
+     */
+    protected OutboundRetryService outboundRetryService() {
+        return outboundRetryService;
     }
 }

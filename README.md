@@ -8,9 +8,9 @@ The service is **event-driven only**: every input is a Kafka event and every out
 event. It exposes no business HTTP API; the only HTTP surface is the actuator health endpoint.
 The rules the code must follow are in the [constitution](.specify/memory/constitution.md).
 
-> Status: **US-01 Reserve stock** ([spec](specs/001-reserve-stock/spec.md)) and **US-02 Release
-> stock** ([spec](specs/002-release-stock/spec.md)) are implemented. The outbound dead-letter retry
-> worker (US-03) is next.
+> Status: **US-01 Reserve stock** ([spec](specs/001-reserve-stock/spec.md)), **US-02 Release
+> stock** ([spec](specs/002-release-stock/spec.md)) and **US-03 Outbound retry worker**
+> ([spec](specs/003-outbound-retry/spec.md)) are implemented.
 
 ## Events
 
@@ -63,6 +63,35 @@ the same order never interleave ([ADR 0005](docs/adr/0005-per-order-serialisatio
    so stock is never held for an order that is already cancelled.
 4. Idempotency, the write flow and failure handling are the same as for reservations: a redelivered
    cancellation republishes its stored `stock-released` message with the same `eventId`.
+
+## How failed publishes are retried
+
+An outcome that could not be published after the commit is stored in `outbound_dead_letters` as
+`PENDING`. A background worker redelivers it ([ADR 0006](docs/adr/0006-outbound-retry-worker.md)):
+
+1. Every `OUTBOUND_RETRY_INTERVAL` (measured from the end of the previous round) a round attempts up
+   to `OUTBOUND_RETRY_BATCH_SIZE` due rows (`PENDING`, `next_retry_at <= now`), oldest first.
+2. Each row has its own transaction: it is locked with `FOR UPDATE SKIP LOCKED` (other instances skip
+   it), the stored topic, key and payload are published unchanged (same `eventId`, at-least-once), and
+   the row becomes `RESOLVED` with `resolved_at`.
+3. On failure the attempt count grows, the error is stored and the next attempt waits
+   `base-delay × multiplier^(attempt−1)`, at most `max-delay`. The round stops at the first failure.
+4. After `OUTBOUND_RETRY_MAX_ATTEMPTS` the row becomes `EXHAUSTED`, is logged at error level and is
+   never retried automatically.
+5. Kafka being down only makes attempts fail; the service stays up and healthy. On shutdown the
+   worker finishes the row in progress and leaves the rest untouched.
+
+Logs: one `INFO Outbound retry round: claimed=… resolved=… failed=… exhausted=…` line per round that
+claimed rows, one `WARN` per failed attempt (row id, topic, attempt n/max, next attempt time) and one
+`ERROR` per exhausted row (row id, event id, topic, key, last error).
+
+Recover an exhausted row manually once the cause is fixed; the next round delivers it:
+
+```sql
+update outbound_dead_letters
+set status = 'PENDING', next_retry_at = now(), retry_count = 0
+where id = '<row id>';
+```
 
 ## Prerequisites
 
@@ -140,7 +169,8 @@ and the reservation is `RELEASED`. Cancelling an order Inventory has never seen 
 marker; placing that order afterwards reserves nothing.
 
 More scenarios: [US-01 quickstart](specs/001-reserve-stock/quickstart.md) (redelivery, duplicate
-order, invalid message, reset commands) and [US-02 quickstart](specs/002-release-stock/quickstart.md).
+order, invalid message, reset commands), [US-02 quickstart](specs/002-release-stock/quickstart.md) and
+[US-03 quickstart](specs/003-outbound-retry/quickstart.md) (Kafka stopped and started).
 
 ### Configuration
 
@@ -159,6 +189,13 @@ Every setting comes from an environment variable; the defaults match ecommerce-i
 | `KAFKA_TOPIC_STOCK_REJECTED` | `inventory.stock-rejected` | Produced topic |
 | `KAFKA_TOPIC_ORDER_CANCELLED` | `orders.order-cancelled` | Consumed topic |
 | `KAFKA_TOPIC_STOCK_RELEASED` | `inventory.stock-released` | Produced topic |
+| `OUTBOUND_RETRY_ENABLED` | `true` | Run the outbound retry worker |
+| `OUTBOUND_RETRY_INTERVAL` | `30s` | Pause between the end of one retry round and the start of the next |
+| `OUTBOUND_RETRY_BATCH_SIZE` | `50` | Maximum rows attempted per round (≥ 1) |
+| `OUTBOUND_RETRY_MAX_ATTEMPTS` | `10` | Worker attempts before a row becomes `EXHAUSTED` (≥ 1) |
+| `OUTBOUND_RETRY_BASE_DELAY` | `30s` | Wait after the first failed attempt |
+| `OUTBOUND_RETRY_MULTIPLIER` | `2.0` | Factor applied to the wait after each further failure (≥ 1.0) |
+| `OUTBOUND_RETRY_MAX_DELAY` | `1h` | Longest wait between attempts (≥ base delay) |
 | `SERVER_PORT` | `8081` (`8080` in the Docker image) | HTTP port of the health endpoint; 8080 is used by kafka-ui locally |
 
 Tuning without environment variables (`application.yml`, `inventory.*`): inbound retries
@@ -174,7 +211,7 @@ and lock timeout (5 s, for stock rows and the per-order lock).
 | `cancellation_markers` | Orders cancelled before Inventory saw their placement (the later placement reserves nothing) |
 | `outcome_messages` | The exact messages published for each reservation (reserve and release), for republishing |
 | `processed_events` | Inbound event ids already handled (idempotency for both topics), linked to the message they produced |
-| `outbound_dead_letters` | Outcomes that could not be published (`PENDING`, for the US-03 worker) |
+| `outbound_dead_letters` | Outcomes that could not be published: `PENDING` (retried by the worker), `RESOLVED` (delivered, `resolved_at` set) or `EXHAUSTED` (gave up, kept for inspection) |
 | `consumed_dead_letters` | Inbound messages that could not be processed, stored as received |
 
 ### Docker
@@ -218,18 +255,20 @@ On Windows use `.\mvnw.cmd` with the same arguments. `verify` needs Docker runni
 src/main/java/com/ecommerce/inventory/
 ├── InventoryApplication.java   Spring Boot entry point
 ├── messaging/                  OrderPlacedListener, OrderCancelledListener, StrictJsonParser, inbound DTOs
-├── application/                ReserveStockService, ReleaseStockService, OutcomePublisher, ports (OrderLock, …)
+├── application/                ReserveStockService, ReleaseStockService, OutcomePublisher,
+│                               OutboundRetryService + OutboundRetryPolicy, ports (OrderLock, …)
 ├── domain/                     StockItem and Reservation aggregates, value objects, domain events;
 │                               plain Java, no Spring/JPA/Kafka
 └── infrastructure/
     ├── config/                 Typed inventory.* properties, clock, policies
     ├── persistence/            JPA entities, adapters for the domain and application ports
+    ├── scheduling/             OutboundRetryScheduler (retry worker schedule and shutdown)
     └── kafka/                  Publisher, message factory and JSON shapes, error handler,
                                 dead-letter recoverer, background listener start
 src/main/resources/
 ├── application.yml             Configuration (environment variables with local defaults)
 ├── application-local.yml       Local profile: adds the sample products
-├── db/migration/               Flyway migrations (V1 baseline, V2 reserve, V3 release)
+├── db/migration/               Flyway migrations (V1 baseline, V2 reserve, V3 release, V4 retry)
 └── db/local/                   Local-only seed (R__seed_local_stock.sql)
 src/test/java/                  *Test (unit) and *IT (integration/component) tests
 docs/adr/                       Architecture Decision Records

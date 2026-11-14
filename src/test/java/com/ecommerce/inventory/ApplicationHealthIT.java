@@ -21,7 +21,7 @@ import org.testcontainers.containers.PostgreSQLContainer;
  */
 @SpringBootTest(
         webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
-        properties = "spring.kafka.bootstrap-servers=localhost:1")
+        properties = {"spring.kafka.bootstrap-servers=localhost:1", "inventory.outbound-retry.enabled=false"})
 class ApplicationHealthIT {
 
     @ServiceConnection
