@@ -8,8 +8,9 @@ The service is **event-driven only**: every input is a Kafka event and every out
 event. It exposes no business HTTP API; the only HTTP surface is the actuator health endpoint.
 The rules the code must follow are in the [constitution](.specify/memory/constitution.md).
 
-> Status: **US-01 Reserve stock** is implemented ([spec](specs/001-reserve-stock/spec.md)).
-> Releasing stock on cancellation (US-02) and the outbound dead-letter retry worker (US-03) are next.
+> Status: **US-01 Reserve stock** ([spec](specs/001-reserve-stock/spec.md)) and **US-02 Release
+> stock** ([spec](specs/002-release-stock/spec.md)) are implemented. The outbound dead-letter retry
+> worker (US-03) is next.
 
 ## Events
 
@@ -20,10 +21,10 @@ for every service.
 | Direction | Topic | Purpose | Status |
 |---|---|---|---|
 | Consumes | `orders.order-placed` | Reserve stock for every item of the order, all or nothing | implemented |
-| Consumes | `orders.order-cancelled` | Release the order's reservation, if there is one | planned (US-02) |
+| Consumes | `orders.order-cancelled` | Release the order's reservation, if there is one | implemented |
 | Produces | `inventory.stock-reserved` | All items were reserved | implemented |
 | Produces | `inventory.stock-rejected` | At least one item could not be reserved; nothing was reserved | implemented |
-| Produces | `inventory.stock-released` | A reservation was released because its order was cancelled | planned (US-02) |
+| Produces | `inventory.stock-released` | A reservation was released because its order was cancelled | implemented |
 
 `inventory.*` events use the reservation id as `aggregateId` (and Kafka key) and identify the order
 by `orderId`. Delivery is at-least-once; consumers deduplicate by `eventId`.
@@ -44,6 +45,24 @@ by `orderId`. Delivery is at-least-once; consumers deduplicate by `eventId`.
    event for an order that already has a reservation is ignored.
 6. If publishing fails, the outcome goes to `outbound_dead_letters` (`PENDING`). If processing keeps
    failing, the message is retried with exponential backoff, then stored in `consumed_dead_letters`.
+
+Every transaction about an order first takes a per-order lock, so a placement and a cancellation of
+the same order never interleave ([ADR 0005](docs/adr/0005-per-order-serialisation.md)).
+
+## How a release works
+
+1. `orders.order-cancelled` is parsed and validated the same strict way (invalid → dead letter).
+2. The order's reservation decides
+   ([`Reservation.release`](src/main/java/com/ecommerce/inventory/domain/model/Reservation.java)):
+   - **Reserved**: every reserved quantity goes back to its stock item, the reservation becomes
+     `RELEASED`, and `inventory.stock-released` is published after the commit.
+   - **Rejected** (nothing was ever taken) or **already released**: ignored with a log line; nothing
+     changes or is published. Stock is never given back twice.
+3. **Cancellation before placement**: if the order has no reservation yet, a row is stored in
+   `cancellation_markers`. When the placement arrives later it reserves nothing and publishes nothing,
+   so stock is never held for an order that is already cancelled.
+4. Idempotency, the write flow and failure handling are the same as for reservations: a redelivered
+   cancellation republishes its stored `stock-released` message with the same `eventId`.
 
 ## Prerequisites
 
@@ -108,8 +127,20 @@ Use new ids for every order. Expected:
 - **Rejected** (for example `SKU-005`, or an unknown `SKU-999`): `inventory.stock-rejected` gets a
   message with the reason and the failing items; no stock changes.
 
-More scenarios (redelivery, duplicate order, invalid message, reset commands):
-[quickstart](specs/001-reserve-stock/quickstart.md).
+To cancel the order, produce on `orders.order-cancelled` with the same order id as key and
+`aggregateId` (any new `eventId`):
+
+```json
+{"eventId":"2c9d8e7f-6a5b-4c3d-9e8f-7a6b5c4d3e2f","occurredAt":"2026-11-13T10:20:00.000Z",
+ "aggregateId":"3b2a1c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d","version":1,"reason":"payment failed"}
+```
+
+Expected: `inventory.stock-released` gets a message with the reserved items, the stock goes back up
+and the reservation is `RELEASED`. Cancelling an order Inventory has never seen stores a cancellation
+marker; placing that order afterwards reserves nothing.
+
+More scenarios: [US-01 quickstart](specs/001-reserve-stock/quickstart.md) (redelivery, duplicate
+order, invalid message, reset commands) and [US-02 quickstart](specs/002-release-stock/quickstart.md).
 
 ### Configuration
 
@@ -126,20 +157,23 @@ Every setting comes from an environment variable; the defaults match ecommerce-i
 | `KAFKA_TOPIC_ORDER_PLACED` | `orders.order-placed` | Consumed topic |
 | `KAFKA_TOPIC_STOCK_RESERVED` | `inventory.stock-reserved` | Produced topic |
 | `KAFKA_TOPIC_STOCK_REJECTED` | `inventory.stock-rejected` | Produced topic |
+| `KAFKA_TOPIC_ORDER_CANCELLED` | `orders.order-cancelled` | Consumed topic |
+| `KAFKA_TOPIC_STOCK_RELEASED` | `inventory.stock-released` | Produced topic |
 | `SERVER_PORT` | `8081` (`8080` in the Docker image) | HTTP port of the health endpoint; 8080 is used by kafka-ui locally |
 
 Tuning without environment variables (`application.yml`, `inventory.*`): inbound retries
 (`consumer-retry`: 3 retries, 1 s → 10 s), publish timeout (15 s), first outbound retry delay (30 s)
-and stock lock timeout (5 s).
+and lock timeout (5 s, for stock rows and the per-order lock).
 
 ### Database tables
 
 | Table | Holds |
 |---|---|
 | `stock_items` | Available quantity per product (never negative) |
-| `reservations`, `reservation_items` | One reservation per order: status, consolidated items, failing items when rejected |
-| `outcome_messages` | The exact message published for each reservation, for republishing |
-| `processed_events` | Inbound event ids already handled (idempotency) |
+| `reservations`, `reservation_items` | One reservation per order: status (`RESERVED`, `REJECTED`, `RELEASED`), consolidated items, failing items when rejected, `released_at` |
+| `cancellation_markers` | Orders cancelled before Inventory saw their placement (the later placement reserves nothing) |
+| `outcome_messages` | The exact messages published for each reservation (reserve and release), for republishing |
+| `processed_events` | Inbound event ids already handled (idempotency for both topics), linked to the message they produced |
 | `outbound_dead_letters` | Outcomes that could not be published (`PENDING`, for the US-03 worker) |
 | `consumed_dead_letters` | Inbound messages that could not be processed, stored as received |
 
@@ -183,8 +217,8 @@ On Windows use `.\mvnw.cmd` with the same arguments. `verify` needs Docker runni
 ```text
 src/main/java/com/ecommerce/inventory/
 ├── InventoryApplication.java   Spring Boot entry point
-├── messaging/                  OrderPlacedListener, strict parser, inbound record DTOs
-├── application/                ReserveStockService (orchestration, transaction, publish) and ports
+├── messaging/                  OrderPlacedListener, OrderCancelledListener, StrictJsonParser, inbound DTOs
+├── application/                ReserveStockService, ReleaseStockService, OutcomePublisher, ports (OrderLock, …)
 ├── domain/                     StockItem and Reservation aggregates, value objects, domain events;
 │                               plain Java, no Spring/JPA/Kafka
 └── infrastructure/
@@ -195,7 +229,7 @@ src/main/java/com/ecommerce/inventory/
 src/main/resources/
 ├── application.yml             Configuration (environment variables with local defaults)
 ├── application-local.yml       Local profile: adds the sample products
-├── db/migration/               Flyway migrations (V1 baseline, V2 reserve-stock schema)
+├── db/migration/               Flyway migrations (V1 baseline, V2 reserve, V3 release)
 └── db/local/                   Local-only seed (R__seed_local_stock.sql)
 src/test/java/                  *Test (unit) and *IT (integration/component) tests
 docs/adr/                       Architecture Decision Records

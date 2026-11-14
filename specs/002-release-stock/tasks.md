@@ -168,13 +168,13 @@ stored message with its original event id.
 
 ## Phase 8: Polish & Cross-Cutting Concerns
 
-- [ ] T033 [P] Write `docs/adr/0005-per-order-serialisation.md` (Context / Decision / Consequences: per-order advisory lock in both handlers, cancellation markers, lock order before stock locks, alternatives rejected per research R1/R2); in `docs/adr/0003-inventory-in-order-saga.md` replace the "Open point" paragraph's conclusion with "Resolved by ADR 0005" and add `- **Amended**: <date> — open point resolved by ADR 0005; the decision is unchanged.` under its Status/Date lines (same convention as ADR 0001); add 0005 to `docs/adr/README.md`
-- [ ] T034 [P] Update `README.md`: status (US-02 implemented), events table (order-cancelled consumed, stock-released produced), "How a release works" section, the cancel-before-place rule, new tables/columns (`cancellation_markers`, `released_at`), new env vars `KAFKA_TOPIC_ORDER_CANCELLED` / `KAFKA_TOPIC_STOCK_RELEASED`, a "try it" cancellation example
-- [ ] T035 [P] Update `CLAUDE.md`: release flow and files, `OrderLock` (always first in both handlers' transactions; lock order order → stock), `OutcomePublisher` as the only publish path, markers, `ProcessedOutcome` values, ADR 0005
-- [ ] T036 In `../ecommerce-infra`, from an up-to-date `main`, create `chore/US-02-inventory-release-events`, apply the three edits of [contracts/kafka-events.md](contracts/kafka-events.md#changes-required-in-ecommerce-infradocseventsmd) to `docs/events.md`, and commit (`docs: mark inventory release events as implemented`); do not push without the user's go-ahead (FR-018)
-- [ ] T037 Review coverage in `target/site/jacoco/index.html` (every `domain` and `application` package ≥ 80%); add unit tests for any gap
+- [X] T033 [P] Write `docs/adr/0005-per-order-serialisation.md` (Context / Decision / Consequences: per-order advisory lock in both handlers, cancellation markers, lock order before stock locks, alternatives rejected per research R1/R2); in `docs/adr/0003-inventory-in-order-saga.md` replace the "Open point" paragraph's conclusion with "Resolved by ADR 0005" and add `- **Amended**: <date> — open point resolved by ADR 0005; the decision is unchanged.` under its Status/Date lines (same convention as ADR 0001); add 0005 to `docs/adr/README.md`
+- [X] T034 [P] Update `README.md`: status (US-02 implemented), events table (order-cancelled consumed, stock-released produced), "How a release works" section, the cancel-before-place rule, new tables/columns (`cancellation_markers`, `released_at`), new env vars `KAFKA_TOPIC_ORDER_CANCELLED` / `KAFKA_TOPIC_STOCK_RELEASED`, a "try it" cancellation example
+- [X] T035 [P] Update `CLAUDE.md`: release flow and files, `OrderLock` (always first in both handlers' transactions; lock order order → stock), `OutcomePublisher` as the only publish path, markers, `ProcessedOutcome` values, ADR 0005
+- [X] T036 In `../ecommerce-infra`, from an up-to-date `main`, create `chore/US-02-inventory-release-events`, apply the three edits of [contracts/kafka-events.md](contracts/kafka-events.md#changes-required-in-ecommerce-infradocseventsmd) to `docs/events.md`, and commit (`docs: mark inventory release events as implemented`); do not push without the user's go-ahead (FR-018)
+- [X] T037 Review coverage in `target/site/jacoco/index.html` (every `domain` and `application` package ≥ 80%); add unit tests for any gap
 - [ ] T038 Run the manual scenarios A–F of [quickstart.md](quickstart.md) against ecommerce-infra and record the results
-- [ ] T039 Final clean gate: `.\mvnw.cmd -B clean verify`
+- [X] T039 Final clean gate: `.\mvnw.cmd -B clean verify`
 
 ---
 
