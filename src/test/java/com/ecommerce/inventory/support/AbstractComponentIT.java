@@ -3,6 +3,7 @@ package com.ecommerce.inventory.support;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 
+import com.ecommerce.inventory.application.OutboundRetryService;
 import com.ecommerce.inventory.application.ReleaseStockService;
 import com.ecommerce.inventory.application.ReserveStockService;
 import com.ecommerce.inventory.application.port.OutboundMessagePublisher;
@@ -15,6 +16,8 @@ import org.springframework.boot.testcontainers.service.connection.ServiceConnect
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.kafka.config.KafkaListenerEndpointRegistry;
 import org.springframework.kafka.listener.MessageListenerContainer;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.kafka.ConfluentKafkaContainer;
@@ -39,11 +42,23 @@ import org.testcontainers.kafka.ConfluentKafkaContainer;
         })
 public abstract class AbstractComponentIT {
 
-    @ServiceConnection
     static final PostgreSQLContainer<?> POSTGRES = PostgresTestContainer.instance();
 
     @ServiceConnection
     static final ConfluentKafkaContainer KAFKA = KafkaTestContainer.instance();
+
+    /**
+     * Own database: this context runs the retry worker and stays cached, so it must not see the rows of
+     * the PostgreSQL-only tests.
+     *
+     * @param registry test properties
+     */
+    @DynamicPropertySource
+    static void isolatedDatabase(DynamicPropertyRegistry registry) {
+        registry.add("spring.datasource.url", () -> PostgresTestContainer.isolatedDatabase("component_it"));
+        registry.add("spring.datasource.username", POSTGRES::getUsername);
+        registry.add("spring.datasource.password", POSTGRES::getPassword);
+    }
 
     private final TestKafkaClient kafka = new TestKafkaClient(KAFKA.getBootstrapServers());
 
@@ -58,6 +73,9 @@ public abstract class AbstractComponentIT {
 
     @MockitoSpyBean
     private OutboundMessagePublisher publisher;
+
+    @MockitoSpyBean
+    private OutboundRetryService outboundRetryService;
 
     @Autowired
     private KafkaListenerEndpointRegistry listeners;
@@ -207,5 +225,14 @@ public abstract class AbstractComponentIT {
      */
     protected OutboundMessagePublisher publisher() {
         return publisher;
+    }
+
+    /**
+     * Spy on the outbound retry worker service, reset after each test.
+     *
+     * @return the spy
+     */
+    protected OutboundRetryService outboundRetryService() {
+        return outboundRetryService;
     }
 }

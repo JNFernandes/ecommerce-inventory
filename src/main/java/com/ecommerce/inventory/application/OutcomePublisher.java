@@ -66,7 +66,7 @@ public class OutcomePublisher {
                     e);
             try {
                 outboundDeadLetters.recordFailure(
-                        message, describe(e), clock.instant().plus(deadLetterPolicy.firstRetryDelay()));
+                        message, Failures.describe(e), clock.instant().plus(deadLetterPolicy.firstRetryDelay()));
             } catch (RuntimeException storeFailure) {
                 LOG.error(
                         "Could not dead-letter event {}; recover manually: topic={} key={} payload={}",
@@ -77,13 +77,5 @@ public class OutcomePublisher {
                         storeFailure);
             }
         }
-    }
-
-    private static String describe(Exception failure) {
-        StringBuilder description = new StringBuilder(failure.toString());
-        for (Throwable cause = failure.getCause(); cause != null; cause = cause.getCause()) {
-            description.append(" | caused by ").append(cause);
-        }
-        return description.toString();
     }
 }
