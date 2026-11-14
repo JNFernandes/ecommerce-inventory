@@ -83,7 +83,11 @@ class KafkaOutboundMessagePublisherTest {
         return new InventoryProperties(
                 new InventoryProperties.Kafka(
                         new InventoryProperties.Topics(
-                                "orders.order-placed", "inventory.stock-reserved", "inventory.stock-rejected"),
+                                "orders.order-placed",
+                                "inventory.stock-reserved",
+                                "inventory.stock-rejected",
+                                "orders.order-cancelled",
+                                "inventory.stock-released"),
                         new InventoryProperties.ConsumerRetry(3, Duration.ofSeconds(1), 2.0, Duration.ofSeconds(10)),
                         publishTimeout),
                 new InventoryProperties.OutboundDeadLetter(Duration.ofSeconds(30)),

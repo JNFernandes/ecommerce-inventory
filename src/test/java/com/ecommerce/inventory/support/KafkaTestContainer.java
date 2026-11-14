@@ -12,8 +12,12 @@ import org.testcontainers.kafka.ConfluentKafkaContainer;
 public final class KafkaTestContainer {
 
     /** Topics the service consumes and produces. */
-    public static final List<String> TOPICS =
-            List.of("orders.order-placed", "inventory.stock-reserved", "inventory.stock-rejected");
+    public static final List<String> TOPICS = List.of(
+            "orders.order-placed",
+            "inventory.stock-reserved",
+            "inventory.stock-rejected",
+            "orders.order-cancelled",
+            "inventory.stock-released");
 
     private static final ConfluentKafkaContainer INSTANCE = start();
 

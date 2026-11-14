@@ -41,11 +41,15 @@ public record InventoryProperties(
      * @param orderPlaced consumed {@code orders.order-placed} topic
      * @param stockReserved produced {@code inventory.stock-reserved} topic
      * @param stockRejected produced {@code inventory.stock-rejected} topic
+     * @param orderCancelled consumed {@code orders.order-cancelled} topic
+     * @param stockReleased produced {@code inventory.stock-released} topic
      */
     public record Topics(
             @NotBlank String orderPlaced,
             @NotBlank String stockReserved,
-            @NotBlank String stockRejected) {}
+            @NotBlank String stockRejected,
+            @NotBlank String orderCancelled,
+            @NotBlank String stockReleased) {}
 
     /**
      * Exponential back-off for inbound processing failures.
