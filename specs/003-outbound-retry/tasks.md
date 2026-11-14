@@ -128,7 +128,7 @@ exactly once.
 - [X] T022 [P] Update `README.md`: status (US-03 implemented), a "How failed publishes are retried" section, the seven `OUTBOUND_RETRY_*` settings with defaults in the configuration table, `resolved_at` in the tables section, and how to recover an Exhausted row manually (`update outbound_dead_letters set status = 'PENDING', next_retry_at = now(), retry_count = 0 where id = …`)
 - [X] T023 [P] Update `CLAUDE.md`: the retry worker (files, round algorithm, fail fast, no overlap), the refined publishing rule ("request flows publish through `OutcomePublisher`; only `OutboundRetryService` uses `OutboundMessagePublisher` directly"), the FR-012 upsert semantics, the test switch `inventory.outbound-retry.enabled`, ADR 0006
 - [X] T024 Review coverage in `target/site/jacoco/index.html` (every `domain` and `application` package ≥ 80%); add unit tests for any gap
-- [ ] T025 Run the manual scenarios A–E of [quickstart.md](quickstart.md) against ecommerce-infra (including stopping and starting `ecommerce-kafka-1`) and record the results
+- [X] T025 Run the manual scenarios A–E of [quickstart.md](quickstart.md) against ecommerce-infra (including stopping and starting `ecommerce-kafka-1`) and record the results
 - [X] T026 Final clean gate: `.\mvnw.cmd -B clean verify`
 
 ---
