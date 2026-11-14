@@ -79,6 +79,17 @@ class KafkaOutboundMessagePublisherTest {
                 .hasCauseInstanceOf(KafkaException.class);
     }
 
+    @Test
+    @DisplayName("should throw PublishFailedException when KafkaTemplate fails synchronously with the broker down")
+    void shouldFailWhenTemplateThrowsSpringKafkaException() {
+        when(kafkaTemplate.send("inventory.stock-reserved", "key-1", "{\"a\":1}"))
+                .thenThrow(new org.springframework.kafka.KafkaException("Send failed"));
+
+        assertThatThrownBy(() -> publisher.publish(MESSAGE))
+                .isInstanceOf(PublishFailedException.class)
+                .hasCauseInstanceOf(org.springframework.kafka.KafkaException.class);
+    }
+
     static InventoryProperties properties(Duration publishTimeout) {
         return new InventoryProperties(
                 new InventoryProperties.Kafka(

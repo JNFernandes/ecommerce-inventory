@@ -47,7 +47,9 @@ public class KafkaOutboundMessagePublisher implements OutboundMessagePublisher {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw failure(message, e);
-        } catch (ExecutionException | TimeoutException | KafkaException e) {
+        } catch (ExecutionException | TimeoutException | KafkaException | org.springframework.kafka.KafkaException e) {
+            // Spring's KafkaException is what KafkaTemplate throws synchronously when the broker is
+            // unreachable (metadata wait exceeded max.block.ms).
             throw failure(message, e);
         }
     }
