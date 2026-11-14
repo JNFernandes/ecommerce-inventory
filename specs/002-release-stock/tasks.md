@@ -173,7 +173,7 @@ stored message with its original event id.
 - [X] T035 [P] Update `CLAUDE.md`: release flow and files, `OrderLock` (always first in both handlers' transactions; lock order order → stock), `OutcomePublisher` as the only publish path, markers, `ProcessedOutcome` values, ADR 0005
 - [X] T036 In `../ecommerce-infra`, from an up-to-date `main`, create `chore/US-02-inventory-release-events`, apply the three edits of [contracts/kafka-events.md](contracts/kafka-events.md#changes-required-in-ecommerce-infradocseventsmd) to `docs/events.md`, and commit (`docs: mark inventory release events as implemented`); do not push without the user's go-ahead (FR-018)
 - [X] T037 Review coverage in `target/site/jacoco/index.html` (every `domain` and `application` package ≥ 80%); add unit tests for any gap
-- [ ] T038 Run the manual scenarios A–F of [quickstart.md](quickstart.md) against ecommerce-infra and record the results
+- [X] T038 Run the manual scenarios A–F of [quickstart.md](quickstart.md) against ecommerce-infra and record the results
 - [X] T039 Final clean gate: `.\mvnw.cmd -B clean verify`
 
 ---
