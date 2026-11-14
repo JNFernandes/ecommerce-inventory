@@ -124,12 +124,12 @@ exactly once.
 
 ## Phase 7: Polish & Cross-Cutting Concerns
 
-- [ ] T021 [P] Write `docs/adr/0006-outbound-retry-worker.md` (Context / Decision / Consequences: one row per transaction with `FOR UPDATE SKIP LOCKED`, no lease, fail-fast rounds, fixed-delay scheduling, pure backoff policy, raw publisher, FR-012 upsert, `SmartLifecycle` shutdown that stops first, and the accepted rare listener wait when a redelivery re-fails the entry the worker is sending; consistent with ecommerce-orders ADR 0005) and add it to `docs/adr/README.md`
-- [ ] T022 [P] Update `README.md`: status (US-03 implemented), a "How failed publishes are retried" section, the seven `OUTBOUND_RETRY_*` settings with defaults in the configuration table, `resolved_at` in the tables section, and how to recover an Exhausted row manually (`update outbound_dead_letters set status = 'PENDING', next_retry_at = now(), retry_count = 0 where id = …`)
-- [ ] T023 [P] Update `CLAUDE.md`: the retry worker (files, round algorithm, fail fast, no overlap), the refined publishing rule ("request flows publish through `OutcomePublisher`; only `OutboundRetryService` uses `OutboundMessagePublisher` directly"), the FR-012 upsert semantics, the test switch `inventory.outbound-retry.enabled`, ADR 0006
-- [ ] T024 Review coverage in `target/site/jacoco/index.html` (every `domain` and `application` package ≥ 80%); add unit tests for any gap
+- [X] T021 [P] Write `docs/adr/0006-outbound-retry-worker.md` (Context / Decision / Consequences: one row per transaction with `FOR UPDATE SKIP LOCKED`, no lease, fail-fast rounds, fixed-delay scheduling, pure backoff policy, raw publisher, FR-012 upsert, `SmartLifecycle` shutdown that stops first, and the accepted rare listener wait when a redelivery re-fails the entry the worker is sending; consistent with ecommerce-orders ADR 0005) and add it to `docs/adr/README.md`
+- [X] T022 [P] Update `README.md`: status (US-03 implemented), a "How failed publishes are retried" section, the seven `OUTBOUND_RETRY_*` settings with defaults in the configuration table, `resolved_at` in the tables section, and how to recover an Exhausted row manually (`update outbound_dead_letters set status = 'PENDING', next_retry_at = now(), retry_count = 0 where id = …`)
+- [X] T023 [P] Update `CLAUDE.md`: the retry worker (files, round algorithm, fail fast, no overlap), the refined publishing rule ("request flows publish through `OutcomePublisher`; only `OutboundRetryService` uses `OutboundMessagePublisher` directly"), the FR-012 upsert semantics, the test switch `inventory.outbound-retry.enabled`, ADR 0006
+- [X] T024 Review coverage in `target/site/jacoco/index.html` (every `domain` and `application` package ≥ 80%); add unit tests for any gap
 - [ ] T025 Run the manual scenarios A–E of [quickstart.md](quickstart.md) against ecommerce-infra (including stopping and starting `ecommerce-kafka-1`) and record the results
-- [ ] T026 Final clean gate: `.\mvnw.cmd -B clean verify`
+- [X] T026 Final clean gate: `.\mvnw.cmd -B clean verify`
 
 ---
 

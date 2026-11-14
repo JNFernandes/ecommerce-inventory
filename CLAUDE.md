@@ -54,7 +54,7 @@ Kafka → **after the DB save** acknowledge the offset. Never publish inside the
 publish fails, write the outbound dead-letter record in its own transaction; never roll back the
 committed state.
 
-## Where things are (US-01 reserve, US-02 release)
+## Where things are (US-01 reserve, US-02 release, US-03 retry)
 
 - Listeners: `messaging/OrderPlacedListener` and `OrderCancelledListener`, each with a parser that
   delegates to `StrictJsonParser` (quantities must be JSON integers, `version` must be 1; failures
@@ -71,8 +71,21 @@ committed state.
   store a `cancellation_markers` row (`CANCELLATION_RECORDED`) or, if one exists,
   `CANCELLATION_IGNORED` → reservation: lock its stock, `Reservation.release` (`RELEASED` /
   `NOTHING_RESERVED` / `ALREADY_RELEASED`), save.
-- `OutcomePublisher` is the only way outcome messages leave the service (publish after commit;
-  failure → `outbound_dead_letters` in its own transaction). Never call the Kafka publisher directly.
+- Request flows publish only through `OutcomePublisher` (publish after commit; failure →
+  `outbound_dead_letters` in its own transaction). Only `OutboundRetryService` calls
+  `OutboundMessagePublisher` directly (going through `OutcomePublisher` would dead-letter a failed
+  retry again). `KafkaOutboundMessagePublisher` turns every send failure, including Spring's
+  synchronous `org.springframework.kafka.KafkaException`, into `PublishFailedException`.
+- Retry worker (ADR 0006): `infrastructure/scheduling/OutboundRetryScheduler` (`@Scheduled`
+  fixed delay, `SmartLifecycle` in the highest phase so it stops first) → `OutboundRetryService.retryDueBatch()`:
+  up to `batch-size` rows, **one transaction per row**: `claimNextDue()` (`FOR UPDATE SKIP LOCKED
+  LIMIT 1`, `MANDATORY` tx) → publish the stored message unchanged → `markResolved` /
+  `recordFailedAttempt` (backoff from `OutboundRetryPolicy`) / `markExhausted` (ERROR log). The first
+  failure ends the round; rounds never overlap (lock) and never throw; `stop()` finishes the row in
+  progress. Switch: `inventory.outbound-retry.enabled`.
+- `recordFailure` upsert (FR-012): a repeated failure for an existing `event_id` leaves `PENDING` and
+  `EXHAUSTED` rows as they are except `last_error`; a `RESOLVED` row is reopened as `PENDING`,
+  `retry_count` 0, new `next_retry_at`, `resolved_at` null.
 - `domain/model/Reservation`: all business rules (`decide`: consolidation, all-or-nothing,
   `FailureKind`, `RejectionReason` with the three exact wire texts; `release`: only
   `RESERVED → RELEASED`, never twice). `ProcessedEvent.outcomeEventId` is present exactly for
@@ -84,8 +97,8 @@ committed state.
   Field order of the records is the JSON field order.
 - Tables: `stock_items`, `reservations` (+ `released_at`), `reservation_items`,
   `cancellation_markers`, `outcome_messages` (reserve and release outcomes), `processed_events`
-  (+ `outcome_event_id`), `outbound_dead_letters` (PENDING, for the US-03 worker),
-  `consumed_dead_letters`.
+  (+ `outcome_event_id`), `outbound_dead_letters` (`PENDING` / `RESOLVED` + `resolved_at`, enforced
+  by a check / `EXHAUSTED`), `consumed_dead_letters`.
 - Local profile (`application-local.yml`, activated by `spring-boot:run`): seeds SKU-001..SKU-005
   from `db/local/R__seed_local_stock.sql`. Never put seed data in `db/migration`.
 
@@ -146,6 +159,12 @@ committed state.
 - Component tests: put every `@MockitoSpyBean`/`@MockitoBean` and property override in
   `AbstractComponentIT`, never in a subclass. A second Spring context would start a second listener
   in the same consumer group and steal messages from the first.
+- The retry worker is off in `AbstractPostgresIT` and `ApplicationHealthIT`. Every context that runs
+  it (`AbstractComponentIT`, `OutboundRetryWithoutKafkaIT`, `OutboundRetryShutdownIT`) uses its own
+  database from `PostgresTestContainer.isolatedDatabase(name)`: cached contexts stay alive, and a
+  live worker on the shared database would process other tests' rows.
+- A test that starts the app with `SpringApplicationBuilder` must pass settings as `--` arguments;
+  `.properties(...)` are defaults that `application.yml` overrides (it would hit the local database).
 - The local `orders.order-placed` topic in ecommerce-infra may contain old Orders test messages; a
   new consumer group reads them from the beginning on first start.
 
@@ -165,6 +184,7 @@ committed state.
 - ADRs in `docs/adr/` (`NNNN-short-title.md`, never renumbered, indexed in `docs/adr/README.md`,
   superseded ones kept). Current: 0001 PostgreSQL, 0002 ordered pessimistic locks, 0003 parallel
   saga participation, 0004 outcome stored with the reservation (publish after commit, republish on
-  redelivery), 0005 per-order lock and cancellation markers (placement vs cancellation race).
+  redelivery), 0005 per-order lock and cancellation markers (placement vs cancellation race),
+  0006 outbound retry worker (one row per transaction, SKIP LOCKED, fail fast, SmartLifecycle stop).
 - Feature specs, plans and tasks live in `specs/NNN-name/` (Spec Kit).
 - Keep `README.md`, this file and the `Dockerfile` up to date with behaviour changes.
