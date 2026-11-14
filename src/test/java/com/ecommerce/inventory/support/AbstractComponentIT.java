@@ -31,7 +31,11 @@ import org.testcontainers.kafka.ConfluentKafkaContainer;
         properties = {
             "inventory.kafka.consumer-retry.max-retries=2",
             "inventory.kafka.consumer-retry.initial-interval=50ms",
-            "inventory.kafka.consumer-retry.max-interval=200ms"
+            "inventory.kafka.consumer-retry.max-interval=200ms",
+            "inventory.outbound-retry.interval=200ms",
+            "inventory.outbound-retry.base-delay=200ms",
+            "inventory.outbound-retry.max-delay=1s",
+            "inventory.outbound-retry.max-attempts=3"
         })
 public abstract class AbstractComponentIT {
 
@@ -86,6 +90,30 @@ public abstract class AbstractComponentIT {
     protected int count(String tableAndCondition) {
         Integer count = jdbcTemplate.queryForObject("select count(*) from " + tableAndCondition, Integer.class);
         return count == null ? 0 : count;
+    }
+
+    /**
+     * Inserts a {@code PENDING} outbound dead letter that is already due, as if a publish had failed.
+     *
+     * @param eventId event id of the stored message
+     * @param topic topic to republish to
+     * @param key message key
+     * @param payload JSON payload
+     * @return the id of the inserted row
+     */
+    protected UUID givenDueOutboundDeadLetter(UUID eventId, String topic, String key, String payload) {
+        UUID id = UUID.randomUUID();
+        jdbcTemplate.update(
+                "insert into outbound_dead_letters (id, event_id, topic, message_key, payload, status, retry_count,"
+                        + " next_retry_at, last_error, created_at, updated_at)"
+                        + " values (?, ?, ?, ?, cast(? as jsonb), 'PENDING', 0, now() - interval '1 second',"
+                        + " 'broker down', now(), now())",
+                id,
+                eventId,
+                topic,
+                key,
+                payload);
+        return id;
     }
 
     /**

@@ -91,6 +91,8 @@ class KafkaOutboundMessagePublisherTest {
                         new InventoryProperties.ConsumerRetry(3, Duration.ofSeconds(1), 2.0, Duration.ofSeconds(10)),
                         publishTimeout),
                 new InventoryProperties.OutboundDeadLetter(Duration.ofSeconds(30)),
-                new InventoryProperties.Stock(Duration.ofSeconds(5)));
+                new InventoryProperties.Stock(Duration.ofSeconds(5)),
+                new InventoryProperties.OutboundRetry(
+                        true, Duration.ofSeconds(30), 50, 10, Duration.ofSeconds(30), 2.0, Duration.ofHours(1)));
     }
 }
