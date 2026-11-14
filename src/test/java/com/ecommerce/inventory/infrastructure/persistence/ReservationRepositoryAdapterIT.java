@@ -110,6 +110,55 @@ class ReservationRepositoryAdapterIT extends AbstractPostgresIT {
                 .containsExactly("SKU-001:-:-", "SKU-004:INSUFFICIENT_STOCK:5", "SKU-999:UNKNOWN_PRODUCT:0");
     }
 
+    @Test
+    @DisplayName("should save and restore a released reservation with its release time")
+    void shouldRoundTripReleasedReservation() {
+        Instant created = Instant.now().minusSeconds(60).truncatedTo(ChronoUnit.MICROS);
+        Instant released = Instant.now().truncatedTo(ChronoUnit.MICROS);
+        Reservation reservation = Reservation.restoreReleased(
+                ReservationId.newId(),
+                new OrderId(UUID.randomUUID()),
+                RequestedItems.consolidate(List.of(item("SKU-001", 3))),
+                created,
+                released);
+
+        transactions.executeWithoutResult(status -> repository.save(reservation));
+
+        assertThat(repository.findByOrderId(reservation.orderId())).hasValueSatisfying(found -> {
+            assertThat(found.status()).isEqualTo(ReservationStatus.RELEASED);
+            assertThat(found.releasedAt()).contains(released);
+            assertThat(found.updatedAt()).isEqualTo(released);
+        });
+    }
+
+    @Test
+    @DisplayName("should update a reserved reservation to released")
+    void shouldUpdateReservedToReleased() {
+        Instant created = Instant.now().minusSeconds(60).truncatedTo(ChronoUnit.MICROS);
+        Instant released = Instant.now().truncatedTo(ChronoUnit.MICROS);
+        ProductId sku = new ProductId("SKU-001");
+        Reservation reservation = Reservation.restore(
+                ReservationId.newId(),
+                new OrderId(UUID.randomUUID()),
+                ReservationStatus.RESERVED,
+                RequestedItems.consolidate(List.of(item("SKU-001", 3))),
+                created,
+                created);
+        transactions.executeWithoutResult(status -> repository.save(reservation));
+
+        transactions.executeWithoutResult(status -> {
+            Reservation loaded = repository.findByOrderId(reservation.orderId()).orElseThrow();
+            loaded.release(java.util.Map.of(sku, new com.ecommerce.inventory.domain.model.StockItem(sku, 7)), released);
+            repository.update(loaded);
+        });
+
+        assertThat(repository.findByOrderId(reservation.orderId())).hasValueSatisfying(found -> {
+            assertThat(found.status()).isEqualTo(ReservationStatus.RELEASED);
+            assertThat(found.releasedAt()).contains(released);
+            assertThat(found.createdAt()).isEqualTo(created);
+        });
+    }
+
     private static RequestedItem item(String productId, long quantity) {
         return new RequestedItem(new ProductId(productId), new Quantity(quantity));
     }

@@ -8,7 +8,7 @@ import java.util.Optional;
 import java.util.UUID;
 import org.springframework.stereotype.Repository;
 
-/** Stores processed inbound event ids in {@code processed_events} (FR-015). */
+/** Stores processed inbound event ids in {@code processed_events} (idempotency for both topics). */
 @Repository
 public class ProcessedEventRepositoryAdapter implements ProcessedEventRepository {
 
@@ -28,7 +28,8 @@ public class ProcessedEventRepositoryAdapter implements ProcessedEventRepository
                         row.getEventId(),
                         row.getTopic(),
                         row.getOutcome(),
-                        new ReservationId(row.getReservationId()),
+                        Optional.ofNullable(row.getReservationId()).map(ReservationId::new),
+                        Optional.ofNullable(row.getOutcomeEventId()),
                         row.getProcessedAt()));
     }
 
@@ -38,7 +39,8 @@ public class ProcessedEventRepositoryAdapter implements ProcessedEventRepository
                 event.eventId(),
                 event.topic(),
                 event.outcome(),
-                event.reservationId().value(),
+                event.reservationId().map(ReservationId::value).orElse(null),
+                event.outcomeEventId().orElse(null),
                 event.processedAt()));
     }
 }

@@ -26,8 +26,11 @@ class ProcessedEventEntity {
     @Column(name = "outcome", nullable = false, length = 32)
     private ProcessedOutcome outcome;
 
-    @Column(name = "reservation_id", nullable = false)
+    @Column(name = "reservation_id")
     private UUID reservationId;
+
+    @Column(name = "outcome_event_id")
+    private UUID outcomeEventId;
 
     @Column(name = "processed_at", nullable = false)
     private Instant processedAt;
@@ -35,12 +38,22 @@ class ProcessedEventEntity {
     protected ProcessedEventEntity() {}
 
     ProcessedEventEntity(
-            UUID eventId, String topic, ProcessedOutcome outcome, UUID reservationId, Instant processedAt) {
+            UUID eventId,
+            String topic,
+            ProcessedOutcome outcome,
+            UUID reservationId,
+            UUID outcomeEventId,
+            Instant processedAt) {
         this.eventId = eventId;
         this.topic = topic;
         this.outcome = outcome;
         this.reservationId = reservationId;
+        this.outcomeEventId = outcomeEventId;
         this.processedAt = processedAt;
+    }
+
+    UUID getOutcomeEventId() {
+        return outcomeEventId;
     }
 
     UUID getEventId() {

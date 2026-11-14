@@ -6,6 +6,7 @@ import com.ecommerce.inventory.domain.model.ReservationId;
 import jakarta.persistence.EntityManager;
 import java.time.Clock;
 import java.util.Optional;
+import java.util.UUID;
 import org.springframework.stereotype.Repository;
 
 /** Stores the outcome message of each reservation in {@code outcome_messages}. */
@@ -35,9 +36,9 @@ public class OutcomeMessageRepositoryAdapter implements OutcomeMessageRepository
     }
 
     @Override
-    public Optional<OutboundMessage> findByReservationId(ReservationId reservationId) {
+    public Optional<OutboundMessage> findByEventId(UUID eventId) {
         return jpaRepository
-                .findByReservationId(reservationId.value())
+                .findById(eventId)
                 .map(row ->
                         new OutboundMessage(row.getEventId(), row.getTopic(), row.getMessageKey(), row.getPayload()));
     }

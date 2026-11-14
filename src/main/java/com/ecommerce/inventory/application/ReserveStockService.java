@@ -1,14 +1,12 @@
 package com.ecommerce.inventory.application;
 
-import com.ecommerce.inventory.application.port.OutboundDeadLetterRepository;
+import com.ecommerce.inventory.application.port.OrderLock;
 import com.ecommerce.inventory.application.port.OutboundMessage;
 import com.ecommerce.inventory.application.port.OutboundMessageFactory;
-import com.ecommerce.inventory.application.port.OutboundMessagePublisher;
 import com.ecommerce.inventory.application.port.OutcomeMessageRepository;
 import com.ecommerce.inventory.application.port.ProcessedEvent;
 import com.ecommerce.inventory.application.port.ProcessedEventRepository;
 import com.ecommerce.inventory.application.port.ProcessedOutcome;
-import com.ecommerce.inventory.application.port.PublishFailedException;
 import com.ecommerce.inventory.domain.event.InventoryDomainEvent;
 import com.ecommerce.inventory.domain.model.ProductId;
 import com.ecommerce.inventory.domain.model.RequestedItems;
@@ -16,6 +14,7 @@ import com.ecommerce.inventory.domain.model.Reservation;
 import com.ecommerce.inventory.domain.model.ReservationId;
 import com.ecommerce.inventory.domain.model.ReservationStatus;
 import com.ecommerce.inventory.domain.model.StockItem;
+import com.ecommerce.inventory.domain.repository.CancellationMarkerRepository;
 import com.ecommerce.inventory.domain.repository.ReservationRepository;
 import com.ecommerce.inventory.domain.repository.StockItemRepository;
 import java.time.Clock;
@@ -24,6 +23,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -32,17 +32,16 @@ import org.springframework.transaction.support.TransactionOperations;
 /**
  * Reserves stock for a placed order (US-01). Orchestration only; every rule lives in the domain.
  *
- * <p>Write flow (constitution Principle III, research R3): one transaction saves the stock changes,
- * the reservation, the outcome message and the processed-event record; only after it commits is the
- * outcome published. The caller acknowledges the offset after this method returns.
+ * <p>Write flow (constitution Principle III, ADR 0004): one transaction saves the stock changes, the
+ * reservation, the outcome message and the processed-event record; only after it commits is the outcome
+ * published through {@link OutcomePublisher}. The caller acknowledges the offset after this method
+ * returns.
  *
- * <p>Concurrency (ADR 0002): stock rows are locked in ascending product id order, so concurrent orders
- * never oversell and never deadlock. Two events for the same order processed at the same time (from
- * different partitions) cannot both create a reservation: the loser's insert violates the unique
- * {@code reservations.order_id} constraint at commit, its whole transaction (including any stock
- * change) rolls back, and the exception goes to the container error handler. On retry the loser sees
- * the winner's reservation and is ignored as a duplicate order. Proven by
- * {@code ConcurrentReservationIT}.
+ * <p>Concurrency: the transaction first takes the per-order lock (ADR 0005), so a placement and a
+ * cancellation of the same order never interleave; then stock rows are locked in ascending product id
+ * order (ADR 0002), so concurrent orders never oversell and never deadlock. Two placements of the same
+ * order are serialised by the order lock, and the unique {@code reservations.order_id} constraint
+ * remains as a safety net. Proven by {@code ConcurrentReservationIT} and {@code PlaceCancelRaceIT}.
  */
 @Service
 public class ReserveStockService {
@@ -51,12 +50,12 @@ public class ReserveStockService {
 
     private final StockItemRepository stockItems;
     private final ReservationRepository reservations;
+    private final CancellationMarkerRepository cancellationMarkers;
     private final OutcomeMessageRepository outcomeMessages;
     private final ProcessedEventRepository processedEvents;
     private final OutboundMessageFactory messageFactory;
-    private final OutboundMessagePublisher publisher;
-    private final OutboundDeadLetterRepository outboundDeadLetters;
-    private final DeadLetterPolicy deadLetterPolicy;
+    private final OutcomePublisher outcomePublisher;
+    private final OrderLock orderLock;
     private final TransactionOperations transactions;
     private final Clock clock;
 
@@ -65,34 +64,34 @@ public class ReserveStockService {
      *
      * @param stockItems stock persistence
      * @param reservations reservation persistence
+     * @param cancellationMarkers orders cancelled before their placement
      * @param outcomeMessages stored outcome messages
      * @param processedEvents processed inbound events
      * @param messageFactory maps domain events to outbound messages
-     * @param publisher publishes outbound messages
-     * @param outboundDeadLetters stores messages whose publish failed
-     * @param deadLetterPolicy when a failed message may be retried
+     * @param outcomePublisher publishes outcomes, dead-lettering failures
+     * @param orderLock serialises all work on one order
      * @param transactions transaction boundary
      * @param clock source of decision times
      */
     public ReserveStockService(
             StockItemRepository stockItems,
             ReservationRepository reservations,
+            CancellationMarkerRepository cancellationMarkers,
             OutcomeMessageRepository outcomeMessages,
             ProcessedEventRepository processedEvents,
             OutboundMessageFactory messageFactory,
-            OutboundMessagePublisher publisher,
-            OutboundDeadLetterRepository outboundDeadLetters,
-            DeadLetterPolicy deadLetterPolicy,
+            OutcomePublisher outcomePublisher,
+            OrderLock orderLock,
             TransactionOperations transactions,
             Clock clock) {
         this.stockItems = stockItems;
         this.reservations = reservations;
+        this.cancellationMarkers = cancellationMarkers;
         this.outcomeMessages = outcomeMessages;
         this.processedEvents = processedEvents;
         this.messageFactory = messageFactory;
-        this.publisher = publisher;
-        this.outboundDeadLetters = outboundDeadLetters;
-        this.deadLetterPolicy = deadLetterPolicy;
+        this.outcomePublisher = outcomePublisher;
+        this.orderLock = orderLock;
         this.transactions = transactions;
         this.clock = clock;
     }
@@ -107,7 +106,7 @@ public class ReserveStockService {
         Step step = Objects.requireNonNull(transactions.execute(status -> handleInTransaction(command)));
         return switch (step) {
             case Decision decision -> {
-                publishOrDeadLetter(decision.message(), command);
+                outcomePublisher.publish(decision.message(), command.orderId());
                 LOG.info(
                         "Order {} handled: reservation {} {}, inbound event {}, published event {} to {}",
                         command.orderId(),
@@ -119,7 +118,7 @@ public class ReserveStockService {
                 yield new ReserveStockOutcome.Decided(decision.reservationId(), decision.status());
             }
             case Redelivery redelivery -> {
-                publishOrDeadLetter(redelivery.message(), command);
+                outcomePublisher.publish(redelivery.message(), command.orderId());
                 LOG.info(
                         "Redelivered event {} for order {} already processed: republished event {} of reservation {}",
                         command.eventId(),
@@ -128,84 +127,66 @@ public class ReserveStockService {
                         redelivery.reservationId());
                 yield new ReserveStockOutcome.Redelivered(redelivery.reservationId());
             }
-            case Ignored ignored -> new ReserveStockOutcome.DuplicateOrderIgnored(ignored.existingReservationId());
+            case Ignored ignored -> ignored.outcome();
         };
     }
 
     /**
-     * Publishes after the commit. A failure never undoes the committed state: the message is stored as
-     * an outbound dead letter in its own transaction for the retry worker (FR-023, constitution v1.0.1
-     * Principle III). If even that fails, the full message is logged for manual recovery.
-     */
-    private void publishOrDeadLetter(OutboundMessage message, ReserveStockCommand command) {
-        try {
-            publisher.publish(message);
-        } catch (PublishFailedException e) {
-            LOG.error(
-                    "Publishing event {} to {} with key {} for order {} failed; storing it as an outbound dead letter",
-                    message.eventId(),
-                    message.topic(),
-                    message.key(),
-                    command.orderId(),
-                    e);
-            try {
-                outboundDeadLetters.recordFailure(
-                        message, describe(e), clock.instant().plus(deadLetterPolicy.firstRetryDelay()));
-            } catch (RuntimeException storeFailure) {
-                LOG.error(
-                        "Could not dead-letter event {}; recover manually: topic={} key={} payload={}",
-                        message.eventId(),
-                        message.topic(),
-                        message.key(),
-                        message.payload(),
-                        storeFailure);
-            }
-        }
-    }
-
-    private static String describe(Exception failure) {
-        StringBuilder description = new StringBuilder(failure.toString());
-        for (Throwable cause = failure.getCause(); cause != null; cause = cause.getCause()) {
-            description.append(" | caused by ").append(cause);
-        }
-        return description.toString();
-    }
-
-    /**
-     * Idempotency (FR-014 to FR-016): a known event id changes nothing and at most republishes the
-     * stored outcome; a new event for an order that already has a reservation is recorded and ignored.
+     * Order lock first, then idempotency (US-01 FR-014 to FR-016), the cancellation marker (US-02
+     * FR-011) and the duplicate-order check, then the decision.
      */
     private Step handleInTransaction(ReserveStockCommand command) {
+        orderLock.lock(command.orderId());
         Optional<ProcessedEvent> processed = processedEvents.find(command.eventId());
         if (processed.isPresent()) {
-            ReservationId reservationId = processed.get().reservationId();
-            if (processed.get().outcome() == ProcessedOutcome.DUPLICATE_ORDER_IGNORED) {
-                LOG.info("Redelivered event {} was ignored as a duplicate order before", command.eventId());
-                return new Ignored(reservationId);
-            }
-            OutboundMessage stored = outcomeMessages
-                    .findByReservationId(reservationId)
-                    .orElseThrow(() -> new IllegalStateException("Event " + command.eventId()
-                            + " is processed but reservation " + reservationId + " has no stored outcome message"));
-            return new Redelivery(reservationId, stored);
+            return redelivered(command, processed.get());
+        }
+        if (cancellationMarkers.exists(command.orderId())) {
+            saveProcessed(command, ProcessedOutcome.PLACEMENT_CANCELLED, Optional.empty(), Optional.empty());
+            LOG.info(
+                    "OrderPlaced for order {} ignored: order already cancelled (event {})",
+                    command.orderId(),
+                    command.eventId());
+            return new Ignored(new ReserveStockOutcome.PlacementCancelled());
         }
         Optional<Reservation> existing = reservations.findByOrderId(command.orderId());
         if (existing.isPresent()) {
             ReservationId existingId = existing.get().id();
-            processedEvents.save(new ProcessedEvent(
-                    command.eventId(),
-                    command.topic(),
-                    ProcessedOutcome.DUPLICATE_ORDER_IGNORED,
-                    existingId,
-                    clock.instant()));
+            saveProcessed(command, ProcessedOutcome.DUPLICATE_ORDER_IGNORED, Optional.of(existingId), Optional.empty());
             LOG.info(
                     "Duplicate OrderPlaced ignored: order {}, new event {}, existing reservation {}",
                     command.orderId(),
                     command.eventId(),
                     existingId);
-            return new Ignored(existingId);
+            return new Ignored(new ReserveStockOutcome.DuplicateOrderIgnored(existingId));
         }
         return decideAndSave(command);
+    }
+
+    /**
+     * A known event changes nothing. Only an event that decided a reservation republishes its stored
+     * outcome; every other outcome publishes nothing (US-02 FR-021).
+     */
+    private Step redelivered(ReserveStockCommand command, ProcessedEvent processed) {
+        switch (processed.outcome()) {
+            case RESERVATION_DECIDED -> {
+                UUID outcomeEventId = processed.outcomeEventId().orElseThrow();
+                OutboundMessage stored = outcomeMessages
+                        .findByEventId(outcomeEventId)
+                        .orElseThrow(() -> new IllegalStateException("Event " + command.eventId()
+                                + " is processed but its outcome message " + outcomeEventId + " is missing"));
+                return new Redelivery(processed.reservationId().orElseThrow(), stored);
+            }
+            case PLACEMENT_CANCELLED -> {
+                LOG.info("Redelivered event {}: order {} was already cancelled", command.eventId(), command.orderId());
+                return new Ignored(new ReserveStockOutcome.PlacementCancelled());
+            }
+            default -> {
+                LOG.info("Redelivered event {} was ignored as a duplicate order before", command.eventId());
+                return new Ignored(new ReserveStockOutcome.DuplicateOrderIgnored(
+                        processed.reservationId().orElseThrow()));
+            }
+        }
     }
 
     private Decision decideAndSave(ReserveStockCommand command) {
@@ -223,9 +204,21 @@ public class ReserveStockService {
         }
         OutboundMessage message = messageFactory.create(events.getFirst());
         outcomeMessages.save(reservation.id(), message);
-        processedEvents.save(new ProcessedEvent(
-                command.eventId(), command.topic(), ProcessedOutcome.RESERVATION_DECIDED, reservation.id(), now));
+        saveProcessed(
+                command,
+                ProcessedOutcome.RESERVATION_DECIDED,
+                Optional.of(reservation.id()),
+                Optional.of(message.eventId()));
         return new Decision(reservation.id(), reservation.status(), message);
+    }
+
+    private void saveProcessed(
+            ReserveStockCommand command,
+            ProcessedOutcome outcome,
+            Optional<ReservationId> reservationId,
+            Optional<UUID> outcomeEventId) {
+        processedEvents.save(new ProcessedEvent(
+                command.eventId(), command.topic(), outcome, reservationId, outcomeEventId, clock.instant()));
     }
 
     /** What the transaction decided; publishing happens only after it has committed. */
@@ -236,5 +229,5 @@ public class ReserveStockService {
 
     private record Redelivery(ReservationId reservationId, OutboundMessage message) implements Step {}
 
-    private record Ignored(ReservationId existingReservationId) implements Step {}
+    private record Ignored(ReserveStockOutcome outcome) implements Step {}
 }

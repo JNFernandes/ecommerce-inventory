@@ -59,7 +59,7 @@ class OutcomeAndProcessedEventAdaptersIT extends AbstractPostgresIT {
                 "{\"eventId\":\"e\",\"version\":1,\"items\":[{\"productId\":\"SKU-001\",\"quantity\":3}]}");
 
         transactions.executeWithoutResult(status -> outcomeMessages.save(reservationId, message));
-        Optional<OutboundMessage> found = outcomeMessages.findByReservationId(reservationId);
+        Optional<OutboundMessage> found = outcomeMessages.findByEventId(message.eventId());
 
         assertThat(found).hasValueSatisfying(stored -> {
             assertThat(stored.eventId()).isEqualTo(message.eventId());
@@ -70,15 +70,36 @@ class OutcomeAndProcessedEventAdaptersIT extends AbstractPostgresIT {
     }
 
     @Test
-    @DisplayName("should save and find a processed event")
+    @DisplayName("should save and find a processed event linked to its reservation and outcome message")
     void shouldRoundTripProcessedEvent() {
         Instant processedAt = Instant.now().truncatedTo(ChronoUnit.MICROS);
+        OutboundMessage message = new OutboundMessage(UUID.randomUUID(), "inventory.stock-reserved", "k", "{}");
         ProcessedEvent event = new ProcessedEvent(
                 UUID.randomUUID(),
                 "orders.order-placed",
                 ProcessedOutcome.RESERVATION_DECIDED,
-                reservationId,
+                Optional.of(reservationId),
+                Optional.of(message.eventId()),
                 processedAt);
+
+        transactions.executeWithoutResult(status -> {
+            outcomeMessages.save(reservationId, message);
+            processedEvents.save(event);
+        });
+
+        assertThat(processedEvents.find(event.eventId())).contains(event);
+    }
+
+    @Test
+    @DisplayName("should save and find a processed event without reservation or outcome message")
+    void shouldRoundTripProcessedEventWithoutReservation() {
+        ProcessedEvent event = new ProcessedEvent(
+                UUID.randomUUID(),
+                "orders.order-cancelled",
+                ProcessedOutcome.CANCELLATION_RECORDED,
+                Optional.empty(),
+                Optional.empty(),
+                Instant.now().truncatedTo(ChronoUnit.MICROS));
 
         transactions.executeWithoutResult(status -> processedEvents.save(event));
 
@@ -89,6 +110,6 @@ class OutcomeAndProcessedEventAdaptersIT extends AbstractPostgresIT {
     @DisplayName("should return empty for unknown ids")
     void shouldReturnEmptyForUnknownIds() {
         assertThat(processedEvents.find(UUID.randomUUID())).isEmpty();
-        assertThat(outcomeMessages.findByReservationId(ReservationId.newId())).isEmpty();
+        assertThat(outcomeMessages.findByEventId(UUID.randomUUID())).isEmpty();
     }
 }

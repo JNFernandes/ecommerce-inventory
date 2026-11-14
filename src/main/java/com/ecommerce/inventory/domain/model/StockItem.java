@@ -48,6 +48,21 @@ public final class StockItem {
     }
 
     /**
+     * Gives a previously reserved quantity back to the available stock.
+     *
+     * @param quantity quantity to give back
+     * @throws InvalidQuantityException when the result would not fit the stock quantity range
+     */
+    public void release(Quantity quantity) {
+        long released = availableQuantity + quantity.value();
+        if (released > Integer.MAX_VALUE) {
+            throw new InvalidQuantityException("Releasing " + quantity.value() + " units of " + productId
+                    + " would exceed the maximum stock quantity");
+        }
+        availableQuantity = (int) released;
+    }
+
+    /**
      * Product identity.
      *
      * @return the product id

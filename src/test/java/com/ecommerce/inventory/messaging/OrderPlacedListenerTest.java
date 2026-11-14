@@ -56,7 +56,8 @@ class OrderPlacedListenerTest {
 
     @BeforeEach
     void setUp() {
-        listener = new OrderPlacedListener(new OrderPlacedMessageParser(VALIDATORS.getValidator()), service);
+        listener = new OrderPlacedListener(
+                new OrderPlacedMessageParser(new StrictJsonParser(VALIDATORS.getValidator())), service);
     }
 
     @Test

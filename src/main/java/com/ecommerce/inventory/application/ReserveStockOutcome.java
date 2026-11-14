@@ -29,4 +29,10 @@ public sealed interface ReserveStockOutcome {
      * @param existingReservationId the reservation the order already has
      */
     record DuplicateOrderIgnored(ReservationId existingReservationId) implements ReserveStockOutcome {}
+
+    /**
+     * The order was cancelled before its placement arrived (US-02 FR-011): nothing was reserved,
+     * nothing was published.
+     */
+    record PlacementCancelled() implements ReserveStockOutcome {}
 }
