@@ -9,6 +9,7 @@ import com.ecommerce.inventory.application.port.OutboundMessage;
 import com.ecommerce.inventory.application.port.PublishFailedException;
 import com.ecommerce.inventory.infrastructure.config.InventoryProperties;
 import java.time.Duration;
+import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import org.apache.kafka.common.KafkaException;
@@ -104,6 +105,7 @@ class KafkaOutboundMessagePublisherTest {
                 new InventoryProperties.OutboundDeadLetter(Duration.ofSeconds(30)),
                 new InventoryProperties.Stock(Duration.ofSeconds(5)),
                 new InventoryProperties.OutboundRetry(
-                        true, Duration.ofSeconds(30), 50, 10, Duration.ofSeconds(30), 2.0, Duration.ofHours(1)));
+                        true, Duration.ofSeconds(30), 50, 10, Duration.ofSeconds(30), 2.0, Duration.ofHours(1)),
+                new InventoryProperties.Http(new InventoryProperties.Cors(List.of())));
     }
 }

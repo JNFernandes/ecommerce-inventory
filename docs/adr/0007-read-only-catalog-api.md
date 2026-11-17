@@ -45,6 +45,11 @@ Rules (constitution 1.1.0, Principle II):
    or a real HTTP call in the component tests.
 7. Any write endpoint needs a new accepted ADR and a further constitution amendment.
 
+**Note (2026-11-17, constitution 1.1.1):** the documentation is generated with springdoc and served
+read-only at `GET /v3/api-docs` (OpenAPI document) and `GET /swagger-ui.html` (viewer) in every
+environment, so the frontend developer can browse the contract. These endpoints expose no data and
+are part of the permitted HTTP surface.
+
 ### Alternatives considered
 
 - **Replicated catalog in another service** (for example Orders or a catalog service keeps a copy of

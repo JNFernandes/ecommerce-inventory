@@ -1,6 +1,53 @@
 <!--
 SYNC IMPACT REPORT
 ==================
+Version change:    1.1.1 → 1.1.2
+Bump rationale:    PATCH — clarification, no new capability. Principle II lists the HTTP surface
+                   "exactly", but omitted paths the permitted stack always serves: springdoc's
+                   `/v3/api-docs.yaml` and `/v3/api-docs/swagger-config` (same OpenAPI document)
+                   and Spring Boot's internal `/error` path (renders errors for requests rejected
+                   before a controller, e.g. an encoded slash). They are now named; `/error` is
+                   explicitly not a business endpoint. Found by /speckit-analyze on
+                   specs/004-products-api (finding C1).
+
+Modified principles:
+  - II. Event-Driven Service, Read-Only Catalog API (NON-NEGOTIABLE) — title unchanged.
+
+Templates reviewed: ✅ plan, spec, tasks templates — no change needed.
+
+Runtime guidance:
+  ✅ CLAUDE.md — HTTP surface line updated.
+  ✅ specs/004-products-api (spec FR-012/FR-016, contract, tasks T015/T017) aligned.
+
+Migration note: none.
+
+Previous amendment, 1.1.1 (2026-11-17):
+
+Version change:    1.1.0 → 1.1.1
+Bump rationale:    PATCH — clarification. Documentation Standards (1.1.0) already allowed OpenAPI
+                   via springdoc, but Principle II listed the HTTP surface "exactly" without the
+                   documentation endpoints springdoc serves. Principle II now lists the read-only
+                   `GET /v3/api-docs` and `GET /swagger-ui.html` (with the viewer's static
+                   resources). No new capability: they expose no data and change nothing. Raised
+                   by /speckit-clarify on specs/004-products-api.
+
+Modified principles:
+  - II. Event-Driven Service, Read-Only Catalog API (NON-NEGOTIABLE) — title unchanged; the
+    permitted HTTP surface adds the OpenAPI document and Swagger UI.
+
+Added / removed sections: (none)
+
+Templates reviewed: ✅ plan, spec, tasks templates — no change needed.
+
+Runtime guidance:
+  ✅ docs/adr/0007-read-only-catalog-api.md — note on the documentation endpoints.
+  ✅ CLAUDE.md                            — HTTP surface line updated.
+  ✅ README.md                            — HTTP API table lists the documentation endpoints.
+
+Migration note: none.
+
+Previous amendment, 1.1.0 (2026-11-17):
+
 Version change:    1.0.1 → 1.1.0
 Bump rationale:    MINOR — materially expanded guidance. Principle II, which forbade any HTTP
                    business API, now permits a bounded read-only catalog API (GET /products,
@@ -105,7 +152,13 @@ event. HTTP exists only so clients can read available stock
 - The permitted HTTP surface is exactly:
   - Spring Boot Actuator health (and readiness/liveness) endpoints;
   - `GET /products` — the catalog list, each entry with its `availableQuantity`;
-  - `GET /products/{id}` — one product with its `availableQuantity`.
+  - `GET /products/{id}` — one product with its `availableQuantity`;
+  - `GET /v3/api-docs` (with its YAML form `/v3/api-docs.yaml` and the viewer configuration
+    `/v3/api-docs/swagger-config`) and `GET /swagger-ui.html` (with the viewer's static resources) —
+    the read-only OpenAPI documentation of the endpoints above (Documentation Standards).
+- Spring Boot's internal error path (`/error`), which only renders the error response for requests
+  the server rejects before they reach a controller, is not a business endpoint: it MUST expose no
+  data and MUST NOT be used as an API.
 - The service MUST NOT expose any endpoint that creates, changes or deletes data (no `POST`,
   `PUT`, `PATCH` or `DELETE` business endpoints, and no `GET` with side effects). No GraphQL.
 - **Controllers** handle I/O only — request parsing, calling exactly one application query
@@ -386,4 +439,4 @@ note if existing code must change.
 Reviewers are empowered to block merges for violations without exception. New principles take
 effect immediately upon merge.
 
-**Version**: 1.1.0 | **Ratified**: 2026-11-13 | **Last Amended**: 2026-11-17
+**Version**: 1.1.2 | **Ratified**: 2026-11-13 | **Last Amended**: 2026-11-17

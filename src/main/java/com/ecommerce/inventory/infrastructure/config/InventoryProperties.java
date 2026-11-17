@@ -6,6 +6,8 @@ import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import java.time.Duration;
+import java.util.List;
+import java.util.Objects;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.validation.annotation.Validated;
 
@@ -16,6 +18,7 @@ import org.springframework.validation.annotation.Validated;
  * @param outboundDeadLetter settings for events that could not be published
  * @param stock settings for stock row locking
  * @param outboundRetry settings of the outbound dead-letter retry worker (US-03)
+ * @param http settings of the read-only catalog API (US-04)
  */
 @Validated
 @ConfigurationProperties("inventory")
@@ -23,7 +26,45 @@ public record InventoryProperties(
         @Valid @NotNull Kafka kafka,
         @Valid @NotNull OutboundDeadLetter outboundDeadLetter,
         @Valid @NotNull Stock stock,
-        @Valid @NotNull OutboundRetry outboundRetry) {
+        @Valid @NotNull OutboundRetry outboundRetry,
+        @Valid @NotNull Http http) {
+
+    /**
+     * HTTP settings of the read-only catalog (US-04).
+     *
+     * @param cors cross-origin access to the catalog
+     */
+    public record Http(@Valid @NotNull Cors cors) {}
+
+    /**
+     * Cross-origin access to the catalog (US-04 FR-023, constitution Principle II). Origins come only
+     * from {@code CORS_ALLOWED_ORIGINS}; empty means no cross-origin access.
+     *
+     * @param allowedOrigins explicit origins such as {@code http://localhost:5173}; trimmed, blanks
+     *     dropped, wildcards refused
+     */
+    public record Cors(List<String> allowedOrigins) {
+
+        /**
+         * Normalises the origins.
+         *
+         * @throws IllegalArgumentException if an origin contains a wildcard
+         */
+        public Cors {
+            List<String> origins = allowedOrigins == null
+                    ? List.of()
+                    : allowedOrigins.stream()
+                            .filter(Objects::nonNull)
+                            .map(String::trim)
+                            .filter(origin -> !origin.isEmpty())
+                            .toList();
+            if (origins.stream().anyMatch(origin -> origin.contains("*"))) {
+                throw new IllegalArgumentException(
+                        "CORS_ALLOWED_ORIGINS must list explicit origins; wildcards are not allowed");
+            }
+            allowedOrigins = List.copyOf(origins);
+        }
+    }
 
     /**
      * Outbound dead-letter retry worker settings (US-03 FR-016).

@@ -29,6 +29,10 @@
         <jacoco-maven-plugin.version>0.8.14</jacoco-maven-plugin.version>
         <!-- Minimum line coverage on the domain and application layers (Principle VII) -->
         <jacoco.line.coverage.minimum>0.80</jacoco.line.coverage.minimum>
+
+        <!-- OpenAPI documentation of the read-only catalog (US-04). Not managed by the Spring Boot
+             BOM; 2.10.0 is built against Spring Boot 3.5.16 (the 3.x line targets Boot 4). -->
+        <springdoc-openapi.version>2.10.0</springdoc-openapi.version>
     </properties>
 
     <dependencies>
@@ -38,7 +42,8 @@
             <artifactId>spring-boot-starter-actuator</artifactId>
         </dependency>
         <dependency>
-            <!-- Only serves the actuator health endpoints; no business HTTP API (Principle II). -->
+            <!-- Serves actuator health and the read-only catalog only; no write endpoint (Principle II). -->
+
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-web</artifactId>
         </dependency>
@@ -49,6 +54,11 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-validation</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springdoc</groupId>
+            <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
+            <version>${springdoc-openapi.version}</version>
         </dependency>
         <dependency>
             <groupId>org.springframework.kafka</groupId>
