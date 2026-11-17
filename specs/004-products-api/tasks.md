@@ -356,7 +356,7 @@ down, and OpenAPI docs at `/v3/api-docs` and `/swagger-ui.html`.
 with no origins configured, no CORS headers are sent; with Kafka unreachable, the catalog and docs
 answer; the OpenAPI document lists only the two `/products` paths.
 
-- [ ] T013 [P] [US4] Add the CORS setting (research R8):
+- [X] T013 [P] [US4] Add the CORS setting (research R8):
   - In `M/infrastructure/config/InventoryProperties.java`, add the component `@Valid @NotNull Http http`
     with nested records `Http(@Valid @NotNull Cors cors)` and `Cors(List<String> allowedOrigins)`. The
     compact constructor of `Cors` maps `null` to an empty list, trims each entry, drops blanks, and
