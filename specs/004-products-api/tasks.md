@@ -168,7 +168,7 @@ names and current available quantities.
 `total`/`limit`/`offset`; one product returns 200; an unknown or wrongly cased id returns a 404
 problem body.
 
-- [ ] T005 [US1] Implement the read adapter (research R3). In
+- [X] T005 [US1] Implement the read adapter (research R3). In
   `M/infrastructure/persistence/StockItemJpaRepository.java`, add:
 
   ```java
