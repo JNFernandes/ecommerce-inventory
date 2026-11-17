@@ -50,6 +50,17 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
         return problem;
     }
 
+    /**
+     * An empty or repeated {@code limit} or {@code offset}: {@code 400} with one error per parameter.
+     *
+     * @param exception the rejected parameters
+     * @return the problem detail
+     */
+    @ExceptionHandler(InvalidQueryParameterException.class)
+    public ProblemDetail invalidQueryParameter(InvalidQueryParameterException exception) {
+        return invalidParameters(exception.errors());
+    }
+
     /** {@code limit} or {@code offset} outside its range: {@code 400} with one error per parameter. */
     @Override
     protected ResponseEntity<Object> handleHandlerMethodValidationException(

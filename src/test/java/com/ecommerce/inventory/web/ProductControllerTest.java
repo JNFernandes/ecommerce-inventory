@@ -164,4 +164,38 @@ class ProductControllerTest {
 
         verifyNoInteractions(service);
     }
+
+    @ParameterizedTest(name = "{0}")
+    @CsvSource(
+            delimiter = '|',
+            value = {
+                "limit=|limit|''|must not be empty",
+                "offset=|offset|''|must not be empty",
+                "limit=1&limit=2|limit|1,2|must be given at most once",
+                "offset=0&offset=5|offset|0,5|must be given at most once"
+            })
+    @DisplayName("should reject an empty or repeated paging parameter")
+    void shouldRejectEmptyOrRepeatedParameter(String query, String parameter, String value, String message)
+            throws Exception {
+        mvc.perform(get("/products?" + query))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.title").value("Invalid request parameters"))
+                .andExpect(jsonPath("$.errors", hasSize(1)))
+                .andExpect(jsonPath("$.errors[0].parameter").value(parameter))
+                .andExpect(jsonPath("$.errors[0].rejectedValue").value(value))
+                .andExpect(jsonPath("$.errors[0].message").value(message));
+
+        verifyNoInteractions(service);
+    }
+
+    @Test
+    @DisplayName("should ignore unknown query parameters")
+    void shouldIgnoreUnknownParameters() throws Exception {
+        when(service.list(50, 0)).thenReturn(new ProductPage(List.of(), 0, 50, 0));
+
+        mvc.perform(get("/products").param("foo", "bar")).andExpect(status().isOk());
+
+        verify(service).list(50, 0);
+    }
 }

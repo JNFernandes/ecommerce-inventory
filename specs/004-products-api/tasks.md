@@ -310,7 +310,7 @@ generic `500`.
   Add "should list a detail for each invalid parameter" (`limit=201&offset=-1` → two `errors`), and
   in every case `verifyNoInteractions(service)`. Gate. Commit
   `feat(US-04): answer invalid paging parameters with 400 problem details`.
-- [ ] T011 [US3] Reject empty and repeated parameters (research R5):
+- [X] T011 [US3] Reject empty and repeated parameters (research R5):
   - Create `M/web/InvalidQueryParameterException.java` (holds a `List<ParameterError>`).
   - Create `M/web/QueryParameterGuard.java`, a `HandlerInterceptor`. In `preHandle`, for `limit` and
     `offset`: if `request.getParameterValues(name)` has more than one value, add
