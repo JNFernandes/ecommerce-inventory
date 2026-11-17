@@ -1,7 +1,9 @@
 package com.ecommerce.inventory.web;
 
 import static org.hamcrest.Matchers.containsInAnyOrder;
+import static org.hamcrest.Matchers.hasSize;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
@@ -15,6 +17,8 @@ import com.ecommerce.inventory.application.ProductView;
 import java.util.List;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.http.MediaType;
@@ -122,5 +126,42 @@ class ProductControllerTest {
         mvc.perform(get("/products/sku-003")).andExpect(status().isNotFound());
 
         verify(service).get("sku-003");
+    }
+
+    @ParameterizedTest(name = "{0}={1}")
+    @CsvSource({
+        "limit, 0, must be greater than or equal to 1",
+        "limit, 201, must be less than or equal to 200",
+        "limit, -5, must be greater than or equal to 1",
+        "offset, -1, must be greater than or equal to 0",
+        "limit, abc, must be a whole number",
+        "offset, 1.5, must be a whole number"
+    })
+    @DisplayName("should reject an invalid paging parameter with 400 and a detail for it")
+    void shouldRejectInvalidParameter(String parameter, String value, String message) throws Exception {
+        mvc.perform(get("/products").param(parameter, value))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.title").value("Invalid request parameters"))
+                .andExpect(jsonPath("$.detail").value("One or more request parameters are invalid."))
+                .andExpect(jsonPath("$.instance").value("/products"))
+                .andExpect(jsonPath("$.errors", hasSize(1)))
+                .andExpect(jsonPath("$.errors[0].parameter").value(parameter))
+                .andExpect(jsonPath("$.errors[0].rejectedValue").value(value))
+                .andExpect(jsonPath("$.errors[0].message").value(message));
+
+        verifyNoInteractions(service);
+    }
+
+    @Test
+    @DisplayName("should list a detail for each invalid parameter")
+    void shouldListEveryInvalidParameter() throws Exception {
+        mvc.perform(get("/products").param("limit", "201").param("offset", "-1"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors", hasSize(2)))
+                .andExpect(jsonPath("$.errors[*].parameter", containsInAnyOrder("limit", "offset")));
+
+        verifyNoInteractions(service);
     }
 }

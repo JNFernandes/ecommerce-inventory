@@ -285,7 +285,7 @@ leaks internals; bad input never produces a `5xx`.
 `errors[]`; `POST`, `PUT`, `PATCH` and `DELETE` return `405`; an unexpected exception returns a
 generic `500`.
 
-- [ ] T010 [US3] Map validation and type errors to `400` (research R4, R6):
+- [X] T010 [US3] Map validation and type errors to `400` (research R4, R6):
   - Create `M/web/dto/ParameterError.java`, a record `(String parameter, String rejectedValue, String message)`.
   - In `M/web/ApiExceptionHandler.java`, override `handleHandlerMethodValidationException`. Build one
     `ParameterError` per invalid parameter: the name from the `MethodParameter`, the rejected value
