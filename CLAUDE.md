@@ -1,6 +1,7 @@
 # CLAUDE.md
 
-Inventory microservice: Java 21, Spring Boot 3.5, DDD, event-driven only. The source of truth for
+Inventory microservice: Java 21, Spring Boot 3.5, DDD, event-driven writes, read-only catalog API
+over HTTP (constitution 1.1.0, ADR 0007). The source of truth for
 every rule below is `.specify/memory/constitution.md`. If this file and the constitution disagree,
 the constitution wins.
 
@@ -8,7 +9,8 @@ the constitution wins.
 
 - Java 21, Spring Boot 3.5, Maven **through the wrapper only** (Maven is not installed: use
   `.\mvnw.cmd` on Windows, `./mvnw` elsewhere)
-- Spring Kafka, Spring Data JPA + PostgreSQL, Flyway, Jakarta Bean Validation
+- Spring Kafka, Spring Web (read-only catalog only), Spring Data JPA + PostgreSQL, Flyway,
+  Jakarta Bean Validation
 - JUnit 5, AssertJ, Mockito, Testcontainers (PostgreSQL, Kafka), Awaitility, JaCoCo
 - Checkstyle (`checkstyle.xml`) and Spotless (palantir-java-format)
 - Local infra comes from the `ecommerce-infra` repo (`docker compose up -d` there): PostgreSQL
@@ -43,8 +45,17 @@ until all four pass. `verify` needs Docker running (Testcontainers).
   `StockRejected`, `StockReleased`.
 - Repositories / persistence (`infrastructure`): JPA entities are separate from domain objects and
   mapped explicitly. JPA entities never reach the domain.
-- No business HTTP API (no REST, no GraphQL). Actuator health is the only HTTP surface. Adding an
-  API needs an ADR first.
+- HTTP surface (constitution Principle II, ADR 0007) is exactly: Actuator health, `GET /products`
+  (list with `availableQuantity`) and `GET /products/{id}`. **No endpoint creates, changes or
+  deletes data**; every state change still arrives as a Kafka event. No GraphQL.
+- Controllers: I/O only, call exactly one application **query** service method. Response DTOs are
+  immutable `record`s, separate from domain and JPA classes. The catalog query reads `stock_items`
+  without locks (never `PESSIMISTIC_WRITE`, never the order lock).
+- CORS origins only from `CORS_ALLOWED_ORIGINS` (empty by default, no wildcards or hard-coded
+  origins). Port `8081` by default (`SERVER_PORT`), because kafka-ui uses 8080.
+- Any write endpoint or any other endpoint needs an accepted ADR and a constitution amendment first.
+- Document endpoints with OpenAPI (springdoc) or in `README.md`; test them with MockMvc or a real
+  HTTP call in the component tests.
 
 ## Write flow (never deviate)
 
@@ -185,6 +196,7 @@ committed state.
   superseded ones kept). Current: 0001 PostgreSQL, 0002 ordered pessimistic locks, 0003 parallel
   saga participation, 0004 outcome stored with the reservation (publish after commit, republish on
   redelivery), 0005 per-order lock and cancellation markers (placement vs cancellation race),
-  0006 outbound retry worker (one row per transaction, SKIP LOCKED, fail fast, SmartLifecycle stop).
+  0006 outbound retry worker (one row per transaction, SKIP LOCKED, fail fast, SmartLifecycle stop),
+  0007 read-only catalog API (`GET /products`, `GET /products/{id}`; no write endpoints).
 - Feature specs, plans and tasks live in `specs/NNN-name/` (Spec Kit).
 - Keep `README.md`, this file and the `Dockerfile` up to date with behaviour changes.
