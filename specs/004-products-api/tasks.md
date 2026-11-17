@@ -1,4 +1,4 @@
----
+﻿---
 
 description: "Task list for US-04 Read-Only Products API with Available Stock"
 ---
@@ -17,8 +17,8 @@ component test on real PostgreSQL + Kafka with a real HTTP call. Each task deliv
 tests together, so every task is one green commit.
 
 **Organization**: The tasks follow the order requested for `/speckit-tasks`: migration and sample
-data → query service → JPA adapter → controller and error handling → CORS and port → springdoc →
-component test → docs. Each task carries the spec story it serves (`[US1]` browse the list, `[US2]`
+data â†’ query service â†’ JPA adapter â†’ controller and error handling â†’ CORS and port â†’ springdoc â†’
+component test â†’ docs. Each task carries the spec story it serves (`[US1]` browse the list, `[US2]`
 look up one product, `[US3]` bad requests, `[US4]` browser access, operation and docs). These labels
 are the stories inside this spec; `US-04` is the whole feature.
 
@@ -44,15 +44,15 @@ fail to start, and the `verify` gate of the service task would be red.
 
   All four must pass before the task is checked off and committed. Never weaken a compiler, Checkstyle
   or coverage setting to get a green gate; stop and report instead.
-- **One commit per task**, Conventional Commits with scope `US-04` (`feat(US-04): …`,
-  `test(US-04): …`, `docs(US-04): …`).
+- **One commit per task**, Conventional Commits with scope `US-04` (`feat(US-04): â€¦`,
+  `test(US-04): â€¦`, `docs(US-04): â€¦`).
 - Javadoc on every public type, method and record component; `package-info.java` for every new
   package (`web`, `web.dto`). Public methods never return `null`.
 - **Read-only**: no code path in this feature writes to the database. No locks on catalog reads (no
   `@Lock`, no `FOR UPDATE`, no `OrderLock`, no `lock_timeout`).
 - The domain package (`M/domain/`) is not touched.
 - Component tests: every spy, mock and property override stays in `T/support/AbstractComponentIT`.
-- Test names describe behaviour with `@DisplayName("should …")`.
+- Test names describe behaviour with `@DisplayName("should â€¦")`.
 
 ---
 
@@ -76,7 +76,7 @@ stories use.
   3. `alter table stock_items alter column name drop default;`
   4. `alter table stock_items add constraint ck_stock_items_name_not_blank check (btrim(name) <> '');`
 
-  Add a header comment that points to `specs/004-products-api/data-model.md` §1. In
+  Add a header comment that points to `specs/004-products-api/data-model.md` Â§1. In
   `M/infrastructure/persistence/StockItemEntity.java`, add
   `@Column(name = "name", nullable = false, length = 200) private String name;` with a package-private
   getter `getName()` and **no setter**.
@@ -135,7 +135,7 @@ stories use.
 
   Adapt the existing assertions to the new column. Gate. Commit
   `feat(US-04): name the local sample products`.
-- [X] T004 [P] Add the application read model and port (data-model §3), all in `M/application/`:
+- [X] T004 [P] Add the application read model and port (data-model Â§3), all in `M/application/`:
   - `ProductView`: record `(String productId, String name, int availableQuantity)`. The compact
     constructor rejects a null or blank id or name, and a negative quantity, with
     `IllegalArgumentException`.
@@ -159,7 +159,7 @@ exist. There is no behaviour change yet.
 
 ---
 
-## Phase 3: User Stories 1 and 2 — Browse the catalog and look up one product (P1) 🎯 MVP
+## Phase 3: User Stories 1 and 2 â€” Browse the catalog and look up one product (P1) ðŸŽ¯ MVP
 
 **Goal**: `GET /products` (paged, ordered, with `total`) and `GET /products/{id}` (200 or 404) return
 names and current available quantities.
@@ -178,7 +178,7 @@ problem body.
 
   Create `M/infrastructure/persistence/ProductCatalogReaderAdapter.java`, a public `@Repository`
   implementing `ProductCatalogReader`:
-  - `findPage` maps each entity with a private `toView(StockItemEntity)` →
+  - `findPage` maps each entity with a private `toView(StockItemEntity)` â†’
     `new ProductView(productId, name, availableQuantity)`;
   - `count` delegates to `jpaRepository.count()`;
   - `findById` uses `jpaRepository.findById(id).map(this::toView)`.
@@ -190,13 +190,13 @@ problem body.
   `AbstractPostgresIT`; clean with `DatabaseCleaner`; arrange with `StockFixtures`). Tests:
   - (a) "should list products in product id byte order": given `sku-001`, `SKU-010`, `SKU-002`,
     `SKU-001`, expect `SKU-001`, `SKU-002`, `SKU-010`, `sku-001`.
-  - (b) "should return the requested slice": 5 products, `findPage(2, 3)` → products 4 and 5.
+  - (b) "should return the requested slice": 5 products, `findPage(2, 3)` â†’ products 4 and 5.
   - (c) "should return an empty page past the end": `findPage(50, 10)`.
   - (d) "should count every product".
-  - (e) "should find a product by its exact id": exact match only, `sku-003` ≠ `SKU-003`.
+  - (e) "should find a product by its exact id": exact match only, `sku-003` â‰  `SKU-003`.
   - (f) "should map name and available quantity".
   - (g) "should read stock while another transaction holds the row lock": in a separate thread, open
-    a transaction through a `TransactionTemplate`, run `select … for update` on `SKU-001` and hold
+    a transaction through a `TransactionTemplate`, run `select â€¦ for update` on `SKU-001` and hold
     it until a latch is released. Meanwhile `findById("SKU-001")` and `findPage(50, 0)` must return
     within 2 s (`assertTimeoutPreemptively`). Release the latch in `finally`.
 
@@ -255,7 +255,7 @@ problem body.
   test. Gate. Commit `feat(US-04): expose GET /products`.
 - [X] T009 [US2] Add `GET /products/{id}` and the 404 problem body:
   - In `M/web/ProductController.java`, add
-    `@GetMapping("/{id}") public ProductResponse get(@PathVariable String id)` →
+    `@GetMapping("/{id}") public ProductResponse get(@PathVariable String id)` â†’
     `ProductResponse.from(service.get(id))`.
   - Create `M/web/ApiExceptionHandler.java`: `@RestControllerAdvice` extending
     `ResponseEntityExceptionHandler`, with `@ExceptionHandler(ProductNotFoundException.class)`
@@ -276,7 +276,7 @@ PostgreSQL. MVP.
 
 ---
 
-## Phase 4: User Story 3 — Clear answers to bad requests (P2)
+## Phase 4: User Story 3 â€” Clear answers to bad requests (P2)
 
 **Goal**: every invalid input is a `400` with per-parameter `errors`; write methods are `405`; nothing
 leaks internals; bad input never produces a `5xx`.
@@ -307,7 +307,7 @@ generic `500`.
   | `limit=abc` | `must be a whole number` |
   | `offset=1.5` | `must be a whole number` |
 
-  Add "should list a detail for each invalid parameter" (`limit=201&offset=-1` → two `errors`), and
+  Add "should list a detail for each invalid parameter" (`limit=201&offset=-1` â†’ two `errors`), and
   in every case `verifyNoInteractions(service)`. Gate. Commit
   `feat(US-04): answer invalid paging parameters with 400 problem details`.
 - [X] T011 [US3] Reject empty and repeated parameters (research R5):
@@ -324,7 +324,7 @@ generic `500`.
   In `T/web/ProductControllerTest.java` (`@Import(WebMvcConfiguration.class)` if the slice does not
   pick it up), add "should reject an empty limit" (`limit=`), "should reject a repeated limit"
   (`limit=1&limit=2`), "should reject an empty offset" and "should ignore unknown query parameters"
-  (`foo=bar` → 200). Gate. Commit `feat(US-04): reject empty or repeated paging parameters`.
+  (`foo=bar` â†’ 200). Gate. Commit `feat(US-04): reject empty or repeated paging parameters`.
 - [X] T012 [US3] Write methods, unknown paths and unexpected errors. In
   `M/web/ApiExceptionHandler.java`, add `@ExceptionHandler(Exception.class)`: log at ERROR with the
   request path and the exception, and return a `ProblemDetail` with status 500, title
@@ -347,7 +347,7 @@ generic `500`.
 
 ---
 
-## Phase 5: User Story 4 — Browser access, port, Kafka independence and docs (P2)
+## Phase 5: User Story 4 â€” Browser access, port, Kafka independence and docs (P2)
 
 **Goal**: CORS only for configured origins, port 8081 by default, the catalog answering with Kafka
 down, and OpenAPI docs at `/v3/api-docs` and `/swagger-ui.html`.
@@ -387,9 +387,9 @@ answer; the OpenAPI document lists only the two `/products` paths.
   `@Import(WebCorsConfiguration.class)`, plus `@EnableConfigurationProperties(InventoryProperties.class)`
   if the slice does not bind it. Tests:
   - "should allow a configured origin" (`Access-Control-Allow-Origin: http://localhost:5173`);
-  - "should refuse an origin that is not configured" (`http://evil.example` → 403);
+  - "should refuse an origin that is not configured" (`http://evil.example` â†’ 403);
   - "should answer a preflight from a configured origin" (`OPTIONS` with
-    `Access-Control-Request-Method: GET` → 200 and the allow-methods header).
+    `Access-Control-Request-Method: GET` â†’ 200 and the allow-methods header).
 
   Create `T/web/ProductControllerWithoutCorsTest.java` (same slice, with
   `@TestPropertySource(properties = "inventory.http.cors.allowed-origins=")` set explicitly, so the
@@ -405,14 +405,14 @@ answer; the OpenAPI document lists only the two `/products` paths.
   existing `spring.kafka.bootstrap-servers=localhost:1`, `GET /products` and `GET /products/SKU-404`
   over the real port return 200 and a 404 problem body (FR-021, SC-006). Over the same real port,
   add the encoded-id edge cases:
-  - "should look up an id with an encoded space": `GET /products/SKU%20X` → 404 problem body with
+  - "should look up an id with an encoded space": `GET /products/SKU%20X` â†’ 404 problem body with
     `productId` `SKU X`;
-  - "should refuse an encoded slash without a server error": `GET /products/a%2Fb` → 400, never
+  - "should refuse an encoded slash without a server error": `GET /products/a%2Fb` â†’ 400, never
     `5xx`.
 
   Use `RestClient`/`TestRestTemplate` with a pre-encoded `URI` so the client does not re-encode `%`.
   Keep the existing health assertions unchanged. Gate. Commit `test(US-04): prove the catalog works while Kafka is down`.
-- [ ] T016 [US4] Add the springdoc dependency (research R9). In `pom.xml`, add the property
+- [X] T016 [US4] Add the springdoc dependency (research R9). In `pom.xml`, add the property
   `<springdoc-openapi.version>2.10.0</springdoc-openapi.version>` and the dependency
   `org.springdoc:springdoc-openapi-starter-webmvc-ui:${springdoc-openapi.version}`. The Spring Boot
   BOM does not manage springdoc, and 2.10.0 is built against Spring Boot 3.5.16.
@@ -431,16 +431,16 @@ answer; the OpenAPI document lists only the two `/products` paths.
     `@Parameter` (description, default, minimum and maximum for `limit`/`offset`; the case-sensitive
     exact match for `id`) and `@ApiResponse` for 200, 400, 404 (get only), 405 and 500, using
     `ProblemDetail` as the error schema.
-  - Annotate every record component of `M/web/dto/*.java` with `@Schema(description = …, example = …)`.
+  - Annotate every record component of `M/web/dto/*.java` with `@Schema(description = â€¦, example = â€¦)`.
 
   In `T/ApplicationHealthIT.java`, add:
   - "should serve the OpenAPI document of the catalog only": `/v3/api-docs` 200; `$.paths` has
     exactly `/products` and `/products/{id}`, and no `/actuator`;
-  - "should serve the Swagger UI": `/swagger-ui.html` → 200 or a 302 to `/swagger-ui/index.html`,
+  - "should serve the Swagger UI": `/swagger-ui.html` â†’ 200 or a 302 to `/swagger-ui/index.html`,
     which answers 200.
   - "should map no HTTP endpoint beyond the permitted surface" (FR-016, constitution 1.1.2 Principle
     II): collect the patterns of every `RequestMappingInfoHandlerMapping` bean in the context
-    (`getHandlerMethods().keySet()` → `getPatternValues()`). Assert they are a subset of
+    (`getHandlerMethods().keySet()` â†’ `getPatternValues()`). Assert they are a subset of
     `/products`, `/products/{id}`, `/v3/api-docs`, `/v3/api-docs.yaml`, `/v3/api-docs/swagger-config`,
     `/swagger-ui.html`, `/error` and the Actuator health paths. Also assert that `/actuator/info`,
     `/actuator/env` and `/actuator/beans` answer 404 over the real port. If springdoc maps an extra
@@ -467,12 +467,12 @@ answer; the OpenAPI document lists only the two `/products` paths.
 - [ ] T019 [US1] Create `T/component/ProductCatalogComponentIT.java` (extends `AbstractComponentIT`).
   Test "should show reserved stock as unavailable and released stock as available again":
   1. `stock.given("SKU-CAT", "Catalog Item", 10)`;
-  2. `GET /products/SKU-CAT` → 10 with the name;
+  2. `GET /products/SKU-CAT` â†’ 10 with the name;
   3. produce `orderPlaced(eventId, orderId, line("SKU-CAT", 2))`;
   4. `await().atMost(30 s).untilAsserted` until `availableQuantityFromApi("SKU-CAT")` is 8;
   5. produce `orderCancelled(newEventId, orderId)`;
   6. await until it is 10 again;
-  7. `GET /products` contains `SKU-CAT` with 10 and `total` ≥ 1.
+  7. `GET /products` contains `SKU-CAT` with 10 and `total` â‰¥ 1.
 
   No `Thread.sleep` (SC-003). Gate. Commit `test(US-04): prove the catalog follows reservations end to end`.
 
@@ -492,16 +492,16 @@ answer; the OpenAPI document lists only the two `/products` paths.
     - CORS behaviour;
     - Swagger UI at `http://localhost:8081/swagger-ui.html`.
   - **Sample products table**: add the **name** column.
-  - **Configuration table**: `CORS_ALLOWED_ORIGINS` with no "takes effect once…" note; `SERVER_PORT`
+  - **Configuration table**: `CORS_ALLOWED_ORIGINS` with no "takes effect onceâ€¦" note; `SERVER_PORT`
     "HTTP port (catalog, docs, health)".
   - **Database tables**: `stock_items` now holds the name.
   - **Project layout**: add `web/`, the new application classes, and `V5` in the migrations list.
-  - **Docker**: a note on the ecommerce-infra compose follow-up (host 8081 → container 8080, set
+  - **Docker**: a note on the ecommerce-infra compose follow-up (host 8081 â†’ container 8080, set
     `CORS_ALLOWED_ORIGINS`).
 
   Gate. Commit `docs(US-04): document the products API`.
 - [ ] T021 [P] Update `CLAUDE.md`:
-  - "Where things are" gets a US-04 bullet: `web/ProductController` → `ProductQueryService` →
+  - "Where things are" gets a US-04 bullet: `web/ProductController` â†’ `ProductQueryService` â†’
     `ProductCatalogReader` / `ProductCatalogReaderAdapter` (native page query
     `collate "C"`, no locks); `ApiExceptionHandler` (problem details, `errors[]`);
     `QueryParameterGuard`; `WebCorsConfiguration`; springdoc paths.
@@ -514,7 +514,7 @@ answer; the OpenAPI document lists only the two `/products` paths.
 - [ ] T022 Run every scenario of `specs/004-products-api/quickstart.md` against ecommerce-infra.
   Clear `CORS_ALLOWED_ORIGINS` from the shell (scenario 10) before running the gate. Record
   the result and the date at the end of `specs/004-products-api/quickstart.md` ("Validation
-  2026-MM-DD: scenarios 1–10 passed" or the failures). Mark `specs/004-products-api/spec.md` Status
+  2026-MM-DD: scenarios 1â€“10 passed" or the failures). Mark `specs/004-products-api/spec.md` Status
   `Implemented`. Gate. Commit `chore(US-04): record manual quickstart validation`.
 
 ---
@@ -527,7 +527,7 @@ answer; the OpenAPI document lists only the two `/products` paths.
 - **T006** depends on T004 and T005. The bean wiring needs the adapter (see the deviation note).
 - **T007** depends on T006 (same file).
 - **T008** depends on T006. **T009** depends on T007 and T008.
-- **T010 → T011 → T012** in order (they share `ApiExceptionHandler` and `ProductControllerTest`); they
+- **T010 â†’ T011 â†’ T012** in order (they share `ApiExceptionHandler` and `ProductControllerTest`); they
   depend on T009.
 - **T013** can start after T004 (properties only; parallel with Phase 3 and 4). **T014** depends on
   T013 and T012 (same test file).
@@ -545,17 +545,17 @@ included); end-to-end after T019.
 ```text
 After T001:            T002 (migration IT)  |  T003 (local seed)  |  T004 (read model + port)
 After T004:            T005 (adapter)       |  T013 (CORS properties)
-After T009:            T010→T011→T012 (errors, sequential)  |  T015 (Kafka-down smoke)  |  T018 (component base)
+After T009:            T010â†’T011â†’T012 (errors, sequential)  |  T015 (Kafka-down smoke)  |  T018 (component base)
 After implementation:  T020 (README)        |  T021 (CLAUDE.md)
 ```
 
 ## Implementation Strategy
 
-1. **MVP** (T001–T009): the named schema, plus list and get with 404. Usable by a frontend from the
+1. **MVP** (T001â€“T009): the named schema, plus list and get with 404. Usable by a frontend from the
    same origin, or server-side.
-2. **Hardening** (T010–T012): the full error contract (Story 3).
-3. **Operation** (T013–T017): CORS for the browser frontend, proven Kafka independence, and
+2. **Hardening** (T010â€“T012): the full error contract (Story 3).
+3. **Operation** (T013â€“T017): CORS for the browser frontend, proven Kafka independence, and
    OpenAPI docs (Story 4).
-4. **End-to-end proof** (T018–T019), then **docs and manual validation** (T020–T022).
+4. **End-to-end proof** (T018â€“T019), then **docs and manual validation** (T020â€“T022).
 
 Each task is one commit with a green four-step gate, so the branch is releasable after any task.
