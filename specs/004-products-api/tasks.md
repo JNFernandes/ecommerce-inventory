@@ -69,7 +69,7 @@ this task list.
 **Purpose**: the `name` column, the sample names and the application read-model types that all
 stories use.
 
-- [ ] T001 Add product names to the schema. Create `R/db/migration/V5__product_name.sql` exactly as in
+- [X] T001 Add product names to the schema. Create `R/db/migration/V5__product_name.sql` exactly as in
   research R10:
   1. `alter table stock_items add column name varchar(200) not null default '';`
   2. `update stock_items set name = product_id;`
@@ -109,7 +109,10 @@ stories use.
   If `isolatedDatabase` reuses an existing database, drop and recreate its schema first
   (`flyway.clean()` is disabled by default, so use `drop schema public cascade; create schema
   public;` through JDBC). Gate. Commit `test(US-04): prove product names are backfilled by V5`.
-- [ ] T003 [P] Give the local sample products their names (serves Story 4, FR-019). Rewrite
+- [X] T003 [P] Give the local sample products their names (serves Story 4, FR-019). **Done in the same
+  commit as T001**: with the `local` profile, Flyway runs V5 and then the seed, so a seed without
+  `name` fails `NOT NULL` and T001 alone cannot pass the gate (decided with the user during
+  implementation). Rewrite
   `R/db/local/R__seed_local_stock.sql` to insert `(product_id, name, available_quantity, updated_at)`
   for:
 

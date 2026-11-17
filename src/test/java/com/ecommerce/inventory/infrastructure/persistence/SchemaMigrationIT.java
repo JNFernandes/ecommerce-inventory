@@ -48,8 +48,8 @@ class SchemaMigrationIT extends AbstractPostgresIT {
     @Test
     @DisplayName("should refuse a negative available quantity (FR-009)")
     void shouldRefuseNegativeStock() {
-        assertThatThrownBy(() ->
-                        jdbc.update("insert into stock_items (product_id, available_quantity) values ('SKU-001', -1)"))
+        assertThatThrownBy(() -> jdbc.update("insert into stock_items (product_id, name, available_quantity)"
+                        + " values ('SKU-001', 'SKU-001', -1)"))
                 .isInstanceOf(DataIntegrityViolationException.class)
                 .hasMessageContaining("ck_stock_items_available_not_negative");
     }
