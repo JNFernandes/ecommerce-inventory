@@ -1,43 +1,60 @@
 <!--
 SYNC IMPACT REPORT
 ==================
-Version change:    1.0.0 → 1.0.1
-Bump rationale:    PATCH — clarification only, no behaviour change. Principle III step 5 listed
-                   "any outbound dead-letter record" inside the single write transaction, which
-                   contradicted step 6 and Principle VIII: an outbound dead-letter record only
-                   exists after a publish fails, and publishing happens after the commit. Found by
-                   /speckit-analyze on specs/001-reserve-stock (finding C1).
+Version change:    1.0.1 → 1.1.0
+Bump rationale:    MINOR — materially expanded guidance. Principle II, which forbade any HTTP
+                   business API, now permits a bounded read-only catalog API (GET /products,
+                   GET /products/{id}) so that clients can show available stock. Every write still
+                   arrives and leaves as a Kafka event; no existing principle is removed and no
+                   existing rule becomes incompatible, so this is not MAJOR. Decision recorded in
+                   docs/adr/0007-read-only-catalog-api.md.
 
 Modified principles:
-  - III. Write Flow Integrity (NON-NEGOTIABLE) — title unchanged. Step 5 now lists stock
-    changes, reservation, the outcome message to be published, and the processed-event record.
-    New paragraph: on a failed post-commit publish, the outbound dead-letter record is written in
-    its own transaction (Principle VIII) and committed state is never rolled back.
+  - II. "Event-Driven Service, No API (NON-NEGOTIABLE)" →
+        "Event-Driven Service, Read-Only Catalog API (NON-NEGOTIABLE)". Permitted HTTP surface:
+    Actuator health plus GET /products (list with availableQuantity) and GET /products/{id}. No
+    endpoint may create, change or delete data. Controllers do I/O only and call exactly one
+    application query service method; response DTOs are immutable records separate from domain
+    and JPA classes; the catalog query reads stock_items without locks. CORS origins only from
+    CORS_ALLOWED_ORIGINS (empty by default). HTTP port defaults to 8081 (SERVER_PORT) because
+    kafka-ui uses 8080. Any write endpoint needs an accepted ADR and a further amendment.
+  - VII. Testing Strategy — title unchanged. API tests required: MockMvc or a real HTTP call in
+    the component tests.
 
 Added sections:
-  - (none)
+  - (none; Technology Stack gains a "Web (read-only API)" row: Spring Web)
 
 Removed sections:
   - (none)
 
+Other changed sections:
+  - Technology Stack — Spring Web row added.
+  - Documentation Standards — HTTP endpoints documented with OpenAPI (springdoc) or in README.md.
+
 Templates reviewed:
   ✅ .specify/templates/plan-template.md  — Constitution Check gates derive from this file at runtime; no static change needed.
   ✅ .specify/templates/spec-template.md  — Generic structure; no change needed.
-  ✅ .specify/templates/tasks-template.md — No principle-driven task type added or removed.
+  ✅ .specify/templates/tasks-template.md — Generic task types (API routing/tests) already exist; no change needed.
   ✅ .specify/templates/commands/*.md     — Directory not present in this project; nothing to update.
 
 Runtime guidance:
-  ✅ CLAUDE.md                            — "Write flow" line aligned with the amended step 5.
-  ✅ docs/adr/0001-postgresql-for-inventory.md — transaction contents corrected, amendment noted.
-  ✅ README.md, Dockerfile, docs/adr/README.md, ADR 0002 — created by the project bootstrap
-     (were listed as pending in the 1.0.0 report).
-  ✅ specs/001-reserve-stock (spec FR-017, research R3/R7, tasks T036/T056–T057) — already match
-     the clarified wording; no change needed.
+  ✅ docs/adr/0007-read-only-catalog-api.md — new ADR (0004 was already taken; ADRs are never
+     renumbered).
+  ✅ docs/adr/README.md                   — index row for 0007; HTTP API convention reworded.
+  ✅ CLAUDE.md                            — layering and HTTP surface rules updated.
+  ✅ README.md                            — HTTP surface described (planned), CORS variable added.
+  ✅ Dockerfile                           — unchanged: image already listens on 8080 via
+     SERVER_PORT; no new behaviour yet.
 
 Migration note:
-  - None. No code exists yet that writes the outbound dead-letter record.
+  - None for existing code. The catalog API itself is not implemented yet: it needs its own user
+    story (spec, plan, tasks) and adds spring-boot-starter-web endpoints, a query service,
+    CORS configuration and the tests required by Principle VII.
 
 Previous amendments:
+  - 1.0.1 (2026-11-13): PATCH — Principle III step 5 no longer lists the outbound dead-letter
+    record inside the write transaction; on a failed post-commit publish it is written in its own
+    transaction and committed state is never rolled back.
   - 1.0.0 (2026-11-13): initial ratification from the template, modelled on ecommerce-orders
     v1.1.0 and adapted to Java 21 / Spring Boot 3.x.
 
@@ -79,15 +96,31 @@ published by infrastructure.
 Placing business logic in listeners, application services or repositories is a constitutional
 violation and MUST be rejected in code review.
 
-### II. Event-Driven Service, No API (NON-NEGOTIABLE)
+### II. Event-Driven Service, Read-Only Catalog API (NON-NEGOTIABLE)
 
-The service MUST NOT expose a REST, GraphQL or any other HTTP business API in its initial scope.
+Every business state change MUST arrive as a Kafka event, and every output MUST leave as a Kafka
+event. HTTP exists only so clients can read available stock
+([ADR 0007](../../docs/adr/0007-read-only-catalog-api.md)).
 
-- All input arrives as Kafka events; all output leaves as Kafka events.
-- Spring Boot Actuator health (and readiness/liveness) endpoints are the only permitted HTTP
-  surface.
-- Adding any HTTP API requires an accepted ADR in `docs/adr/` **before** implementation starts,
-  followed by a constitution amendment.
+- The permitted HTTP surface is exactly:
+  - Spring Boot Actuator health (and readiness/liveness) endpoints;
+  - `GET /products` — the catalog list, each entry with its `availableQuantity`;
+  - `GET /products/{id}` — one product with its `availableQuantity`.
+- The service MUST NOT expose any endpoint that creates, changes or deletes data (no `POST`,
+  `PUT`, `PATCH` or `DELETE` business endpoints, and no `GET` with side effects). No GraphQL.
+- **Controllers** handle I/O only — request parsing, calling exactly one application query
+  service method, mapping the result to a response. They MUST NOT contain logic.
+- Response DTOs MUST be immutable `record`s, separate from domain and JPA classes. JPA entities
+  and domain objects MUST NOT be serialized to HTTP responses.
+- The catalog query reads `stock_items` **without locks** (no `PESSIMISTIC_WRITE`, no
+  `FOR UPDATE`, no per-order lock); a read never blocks a reservation.
+- CORS allowed origins MUST come only from the `CORS_ALLOWED_ORIGINS` environment variable,
+  empty by default (no cross-origin access unless configured). Wildcards and hard-coded origins
+  are prohibited.
+- The HTTP server port defaults to `8081`, overridable with `SERVER_PORT`, because `8080` is used
+  by Kafka UI in the shared infrastructure.
+- Adding any write endpoint, or any HTTP endpoint beyond the list above, requires an accepted ADR
+  in `docs/adr/` **before** implementation starts, followed by a further constitution amendment.
 
 ### III. Write Flow Integrity (NON-NEGOTIABLE)
 
@@ -163,6 +196,9 @@ Three test layers are required:
 - **Component tests** — full Spring Boot context with real PostgreSQL and real Kafka via
   Testcontainers. Other services are simulated by producing their events to Kafka. They MUST cover
   the complete flow: event consumed → DB updated → event published.
+- **API tests** — every HTTP endpoint (Principle II) MUST be tested, either with MockMvc or with
+  a real HTTP call in the component tests, covering at least the success response, an unknown
+  product (`404`), and that write methods are not accepted.
 
 Tools: JUnit 5, AssertJ, Mockito, Testcontainers (PostgreSQL, Kafka), Awaitility for asynchronous
 assertions (`Thread.sleep` in tests is prohibited).
@@ -302,6 +338,7 @@ The project MUST compile and pass all quality checks at all times.
 | Framework | Spring Boot 3.x |
 | Build | Maven with Maven wrapper |
 | Messaging | Kafka via Spring Kafka |
+| Web (read-only API) | Spring Web (Spring MVC) — catalog queries and Actuator only (Principle II) |
 | Persistence | Spring Data JPA + PostgreSQL |
 | Migrations | Flyway |
 | Validation | Jakarta Bean Validation |
@@ -321,6 +358,8 @@ All public classes, methods and interfaces MUST carry Javadoc comments.
 Kafka event payloads MUST be documented in the event class Javadoc (every field) and in
 `ecommerce-infra/docs/events.md`, which remains the source of truth.
 Each top-level package MUST include a `package-info.java` describing its responsibility.
+Every HTTP endpoint MUST be documented, either as OpenAPI generated with springdoc or as an
+endpoint section in `README.md` (path, parameters, response fields, status codes).
 Architectural decisions MUST be recorded as ADRs in `docs/adr/` using the standard template
 (Context / Decision / Consequences).
 ADRs are numbered sequentially with a four-digit prefix (`0001-short-title.md`, `0002-...`), are
@@ -347,4 +386,4 @@ note if existing code must change.
 Reviewers are empowered to block merges for violations without exception. New principles take
 effect immediately upon merge.
 
-**Version**: 1.0.1 | **Ratified**: 2026-11-13 | **Last Amended**: 2026-11-13
+**Version**: 1.1.0 | **Ratified**: 2026-11-13 | **Last Amended**: 2026-11-17

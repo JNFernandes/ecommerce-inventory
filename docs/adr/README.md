@@ -11,8 +11,9 @@ requires (Documentation Standards).
   one's status to `Superseded by NNNN`. The superseded ADR is kept.
 - Start from [`template.md`](template.md) (Context / Decision / Consequences).
 - Add every new ADR to the index below in the same PR.
-- Adding any HTTP API (constitution Principle II) or a runtime dependency that duplicates an
-  existing capability requires an ADR before the PR can be merged.
+- Adding any HTTP endpoint beyond the read-only catalog of ADR 0007 (constitution Principle II),
+  in particular any write endpoint, or a runtime dependency that duplicates an existing capability
+  requires an ADR before the PR can be merged.
 
 ## Index
 
@@ -24,3 +25,4 @@ requires (Documentation Standards).
 | [0004](0004-outcome-stored-with-reservation.md) | Outcome message stored with the reservation, published after commit | Accepted |
 | [0005](0005-per-order-serialisation.md) | Per-order serialisation of placement and cancellation | Accepted |
 | [0006](0006-outbound-retry-worker.md) | Outbound retry worker: one row per transaction with FOR UPDATE SKIP LOCKED | Accepted |
+| [0007](0007-read-only-catalog-api.md) | Read-only catalog API for available stock | Accepted |

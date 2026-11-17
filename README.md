@@ -4,8 +4,10 @@ Inventory microservice of the polyglot e-commerce system (Orders: NestJS, Paymen
 Notifications: Python). It owns product stock and per-order stock reservations, and takes part in
 the order saga in parallel with Payments ([ADR 0003](docs/adr/0003-inventory-in-order-saga.md)).
 
-The service is **event-driven only**: every input is a Kafka event and every output is a Kafka
-event. It exposes no business HTTP API; the only HTTP surface is the actuator health endpoint.
+Every **state change is event-driven**: every input that changes data is a Kafka event and every
+output is a Kafka event. Over HTTP the service offers only the actuator health endpoint and a
+**read-only catalog** so that clients can show available stock
+([ADR 0007](docs/adr/0007-read-only-catalog-api.md)); no endpoint creates, changes or deletes data.
 The rules the code must follow are in the [constitution](.specify/memory/constitution.md).
 
 > Status: **US-01 Reserve stock** ([spec](specs/001-reserve-stock/spec.md)), **US-02 Release
@@ -28,6 +30,19 @@ for every service.
 
 `inventory.*` events use the reservation id as `aggregateId` (and Kafka key) and identify the order
 by `orderId`. Delivery is at-least-once; consumers deduplicate by `eventId`.
+
+## HTTP API
+
+| Method and path | Purpose | Status |
+|---|---|---|
+| `GET /actuator/health` | Health, readiness and liveness | implemented |
+| `GET /products` | Every product with its `availableQuantity` | planned (ADR 0007) |
+| `GET /products/{id}` | One product with its `availableQuantity`; `404` if unknown | planned (ADR 0007) |
+
+The catalog reads `stock_items` without locks, so a quantity is a snapshot: placing an order can
+still be rejected. There are no write endpoints, and adding one needs a new ADR and a constitution
+amendment. Browsers can call the API cross-origin only from the origins listed in
+`CORS_ALLOWED_ORIGINS`.
 
 ## How a reservation works
 
@@ -196,7 +211,8 @@ Every setting comes from an environment variable; the defaults match ecommerce-i
 | `OUTBOUND_RETRY_BASE_DELAY` | `30s` | Wait after the first failed attempt |
 | `OUTBOUND_RETRY_MULTIPLIER` | `2.0` | Factor applied to the wait after each further failure (≥ 1.0) |
 | `OUTBOUND_RETRY_MAX_DELAY` | `1h` | Longest wait between attempts (≥ base delay) |
-| `SERVER_PORT` | `8081` (`8080` in the Docker image) | HTTP port of the health endpoint; 8080 is used by kafka-ui locally |
+| `SERVER_PORT` | `8081` (`8080` in the Docker image) | HTTP port (health and catalog); 8080 is used by kafka-ui locally |
+| `CORS_ALLOWED_ORIGINS` | empty | Comma-separated origins allowed to call the catalog from a browser (e.g. `http://localhost:5173`); empty means no cross-origin access. Takes effect once the catalog API is implemented |
 
 Tuning without environment variables (`application.yml`, `inventory.*`): inbound retries
 (`consumer-retry`: 3 retries, 1 s → 10 s), publish timeout (15 s), first outbound retry delay (30 s)
