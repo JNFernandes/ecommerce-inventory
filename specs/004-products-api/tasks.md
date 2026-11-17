@@ -500,7 +500,7 @@ answer; the OpenAPI document lists only the two `/products` paths.
     `CORS_ALLOWED_ORIGINS`).
 
   Gate. Commit `docs(US-04): document the products API`.
-- [ ] T021 [P] Update `CLAUDE.md`:
+- [X] T021 [P] Update `CLAUDE.md`:
   - "Where things are" gets a US-04 bullet: `web/ProductController` → `ProductQueryService` →
     `ProductCatalogReader` / `ProductCatalogReaderAdapter` (native page query
     `collate "C"`, no locks); `ApiExceptionHandler` (problem details, `errors[]`);

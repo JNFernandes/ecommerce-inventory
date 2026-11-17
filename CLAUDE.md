@@ -9,8 +9,8 @@ the constitution wins.
 
 - Java 21, Spring Boot 3.5, Maven **through the wrapper only** (Maven is not installed: use
   `.\mvnw.cmd` on Windows, `./mvnw` elsewhere)
-- Spring Kafka, Spring Web (read-only catalog only), Spring Data JPA + PostgreSQL, Flyway,
-  Jakarta Bean Validation
+- Spring Kafka, Spring Web (read-only catalog only), springdoc-openapi 2.10.0 (version pinned in
+  `pom.xml`, not in the Boot BOM), Spring Data JPA + PostgreSQL, Flyway, Jakarta Bean Validation
 - JUnit 5, AssertJ, Mockito, Testcontainers (PostgreSQL, Kafka), Awaitility, JaCoCo
 - Checkstyle (`checkstyle.xml`) and Spotless (palantir-java-format)
 - Local infra comes from the `ecommerce-infra` repo (`docker compose up -d` there): PostgreSQL
@@ -67,7 +67,7 @@ Kafka → **after the DB save** acknowledge the offset. Never publish inside the
 publish fails, write the outbound dead-letter record in its own transaction; never roll back the
 committed state.
 
-## Where things are (US-01 reserve, US-02 release, US-03 retry)
+## Where things are (US-01 reserve, US-02 release, US-03 retry, US-04 catalog)
 
 - Listeners: `messaging/OrderPlacedListener` and `OrderCancelledListener`, each with a parser that
   delegates to `StrictJsonParser` (quantities must be JSON integers, `version` must be 1; failures
@@ -108,12 +108,28 @@ committed state.
   `commitRecovered` only works with ack mode `manual_immediate`; don't change the ack mode.
 - `JsonOutboundMessageFactory` + `infrastructure/kafka/message/*Message` records: the JSON contract.
   Field order of the records is the JSON field order.
-- Tables: `stock_items`, `reservations` (+ `released_at`), `reservation_items`,
+- Read-only catalog (US-04, ADR 0007): `web/ProductController` (`GET /products`, `GET /products/{id}`)
+  → `ProductQueryService` (`list` read-only `REPEATABLE_READ` so items and total share a snapshot;
+  `get` read-only; `ProductNotFoundException`) → port `ProductCatalogReader` →
+  `infrastructure/persistence/ProductCatalogReaderAdapter` (native page query
+  `order by product_id collate "C" limit/offset`, `count()`, `findById`; **no locks**, never the
+  order lock). Records: `ProductView`/`ProductPage` (application) → `ProductResponse`/
+  `ProductPageResponse` (`web/dto`). `web/ApiExceptionHandler` (extends
+  `ResponseEntityExceptionHandler`): every error is a problem detail; `400`s carry `errors[]`
+  (`ParameterError`); `500` is generic. `web/QueryParameterGuard` rejects empty or repeated
+  `limit`/`offset`. **No class-level `@Validated` on controllers**: `@Min`/`@Max` on `@RequestParam`
+  use Spring MVC's built-in validation (a class-level `@Validated` turns violations into `500`s).
+  `infrastructure/config/WebCorsConfiguration` (origins from `inventory.http.cors.allowed-origins` =
+  `CORS_ALLOWED_ORIGINS`), `OpenApiConfiguration` + `springdoc.*` in `application.yml`.
+- Tables: `stock_items` (+ `name`, never blank, written only by migrations or the local seed),
+  `reservations` (+ `released_at`), `reservation_items`,
   `cancellation_markers`, `outcome_messages` (reserve and release outcomes), `processed_events`
   (+ `outcome_event_id`), `outbound_dead_letters` (`PENDING` / `RESOLVED` + `resolved_at`, enforced
   by a check / `EXHAUSTED`), `consumed_dead_letters`.
 - Local profile (`application-local.yml`, activated by `spring-boot:run`): seeds SKU-001..SKU-005
-  from `db/local/R__seed_local_stock.sql`. Never put seed data in `db/migration`.
+  from `db/local/R__seed_local_stock.sql` (upserts names, never quantities). Never put seed data in
+  `db/migration`. Any change to `stock_items` columns must keep that seed valid: `LocalSeedIT` runs
+  it after the versioned migrations.
 
 ## Stock rules
 
@@ -168,7 +184,15 @@ committed state.
   insufficient stock")`.
 - Test support in `src/test/java/.../support`: singleton containers (`PostgresTestContainer`,
   `KafkaTestContainer`), `AbstractPostgresIT` (Kafka unreachable on purpose), `AbstractComponentIT`
-  (real Kafka), `TestKafkaClient`, `StockFixtures`, `DatabaseCleaner`.
+  (real Kafka, `RANDOM_PORT`, `httpGet` / `availableQuantityFromApi`), `TestKafkaClient`,
+  `StockFixtures` (`given(id, qty)` names the product after its id; `given(id, name, qty)`),
+  `DatabaseCleaner`.
+- Web (`web/*Test`): `@WebMvcTest(ProductController.class)` + `@EnableConfigurationProperties(
+  InventoryProperties.class)` (the slice does not bind it). Set `inventory.http.cors.allowed-origins`
+  explicitly in every web test, empty included: a `CORS_ALLOWED_ORIGINS` left in the shell must
+  never decide a result.
+- `ApplicationHealthIT` checks that no HTTP mapping exists beyond the permitted surface (constitution
+  Principle II); a new endpoint fails it until the constitution and that list are updated.
 - Component tests: put every `@MockitoSpyBean`/`@MockitoBean` and property override in
   `AbstractComponentIT`, never in a subclass. A second Spring context would start a second listener
   in the same consumer group and steal messages from the first.
