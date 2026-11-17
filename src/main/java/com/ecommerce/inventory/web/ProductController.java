@@ -3,9 +3,11 @@ package com.ecommerce.inventory.web;
 import com.ecommerce.inventory.application.ProductPage;
 import com.ecommerce.inventory.application.ProductQueryService;
 import com.ecommerce.inventory.web.dto.ProductPageResponse;
+import com.ecommerce.inventory.web.dto.ProductResponse;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -48,5 +50,17 @@ public class ProductController {
             @RequestParam(defaultValue = DEFAULT_LIMIT) @Min(1) @Max(ProductPage.MAX_LIMIT) int limit,
             @RequestParam(defaultValue = DEFAULT_OFFSET) @Min(0) int offset) {
         return ProductPageResponse.from(service.list(limit, offset));
+    }
+
+    /**
+     * Returns one product by its exact id (case-sensitive). An unknown id becomes a {@code 404} problem
+     * detail in {@link ApiExceptionHandler}.
+     *
+     * @param id product id, URL-decoded
+     * @return the product
+     */
+    @GetMapping("/{id}")
+    public ProductResponse get(@PathVariable String id) {
+        return ProductResponse.from(service.get(id));
     }
 }

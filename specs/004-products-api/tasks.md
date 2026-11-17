@@ -253,7 +253,7 @@ problem body.
   If the slice cannot start because another `WebMvcConfigurer` or `@ControllerAdvice` in the
   application needs beans that aren't loaded, add only the missing `@Import`/`@MockitoBean` in the
   test. Gate. Commit `feat(US-04): expose GET /products`.
-- [ ] T009 [US2] Add `GET /products/{id}` and the 404 problem body:
+- [X] T009 [US2] Add `GET /products/{id}` and the 404 problem body:
   - In `M/web/ProductController.java`, add
     `@GetMapping("/{id}") public ProductResponse get(@PathVariable String id)` →
     `ProductResponse.from(service.get(id))`.

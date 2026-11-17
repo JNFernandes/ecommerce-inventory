@@ -8,6 +8,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.ecommerce.inventory.application.ProductNotFoundException;
 import com.ecommerce.inventory.application.ProductPage;
 import com.ecommerce.inventory.application.ProductQueryService;
 import com.ecommerce.inventory.application.ProductView;
@@ -83,5 +84,43 @@ class ProductControllerTest {
         mvc.perform(get("/products").param("limit", "200").param("offset", "7")).andExpect(status().isOk());
 
         verify(service).list(200, 7);
+    }
+
+    @Test
+    @DisplayName("should return one product")
+    void shouldReturnOneProduct() throws Exception {
+        when(service.get("SKU-001")).thenReturn(MOUSE);
+
+        mvc.perform(get("/products/SKU-001"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.keys()", containsInAnyOrder("id", "name", "availableQuantity")))
+                .andExpect(jsonPath("$.id").value("SKU-001"))
+                .andExpect(jsonPath("$.name").value("Wireless Mouse"))
+                .andExpect(jsonPath("$.availableQuantity").value(10));
+    }
+
+    @Test
+    @DisplayName("should answer 404 with a problem body naming the missing product")
+    void shouldAnswerNotFoundProblem() throws Exception {
+        when(service.get("SKU-999")).thenThrow(new ProductNotFoundException("SKU-999"));
+
+        mvc.perform(get("/products/SKU-999"))
+                .andExpect(status().isNotFound())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.status").value(404))
+                .andExpect(jsonPath("$.title").value("Product not found"))
+                .andExpect(jsonPath("$.detail").value("Product SKU-999 not found."))
+                .andExpect(jsonPath("$.instance").value("/products/SKU-999"))
+                .andExpect(jsonPath("$.productId").value("SKU-999"));
+    }
+
+    @Test
+    @DisplayName("should look up the id exactly as given")
+    void shouldPassIdUnchanged() throws Exception {
+        when(service.get("sku-003")).thenThrow(new ProductNotFoundException("sku-003"));
+
+        mvc.perform(get("/products/sku-003")).andExpect(status().isNotFound());
+
+        verify(service).get("sku-003");
     }
 }
