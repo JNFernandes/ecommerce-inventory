@@ -397,7 +397,7 @@ answer; the OpenAPI document lists only the two `/products` paths.
   "should send no CORS headers when no origin is configured": a request with `Origin` gets 200 for
   same-path GET and no `Access-Control-Allow-Origin`. Gate. Commit
   `feat(US-04): allow cross-origin reads only from configured origins`.
-- [ ] T015 [P] [US4] Check the port configuration (FR-024). Confirm that `R/application.yml` has
+- [X] T015 [P] [US4] Check the port configuration (FR-024). Confirm that `R/application.yml` has
   `server.port: ${SERVER_PORT:8081}` and that `Dockerfile` keeps `ENV SERVER_PORT=8080` and
   `EXPOSE 8080`. Both are present today; change nothing if they still are.
 
