@@ -96,6 +96,15 @@ inventory:
     cors:
       allowed-origins: ${CORS_ALLOWED_ORIGINS:}
 
+# OpenAPI documentation of the read-only catalog (US-04, constitution 1.1.2 Principle II): only the
+# /products paths are documented; Actuator stays out of the document.
+springdoc:
+  paths-to-match: /products, /products/**
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+
 server:
   port: ${SERVER_PORT:8081}  # 8080 is taken by kafka-ui in ecommerce-infra
   shutdown: graceful

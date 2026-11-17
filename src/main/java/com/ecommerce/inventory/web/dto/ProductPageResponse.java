@@ -1,6 +1,7 @@
 package com.ecommerce.inventory.web.dto;
 
 import com.ecommerce.inventory.application.ProductPage;
+import io.swagger.v3.oas.annotations.media.Schema;
 import java.util.List;
 
 /**
@@ -11,7 +12,19 @@ import java.util.List;
  * @param limit maximum page size applied
  * @param offset number of products skipped
  */
-public record ProductPageResponse(List<ProductResponse> items, long total, int limit, int offset) {
+@Schema(description = "One page of the catalog. items and total come from one snapshot.")
+public record ProductPageResponse(
+        @Schema(description = "At most limit products after skipping offset, in product id order; empty past the end.")
+        List<ProductResponse> items,
+
+        @Schema(description = "Number of products in the catalog.", example = "5")
+        long total,
+
+        @Schema(description = "Maximum page size applied (default 50, at most 200).", example = "50")
+        int limit,
+
+        @Schema(description = "Number of products skipped (default 0).", example = "0")
+        int offset) {
 
     /**
      * Copies the items so the response cannot change after it is built.

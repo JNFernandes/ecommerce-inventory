@@ -420,7 +420,7 @@ answer; the OpenAPI document lists only the two `/products` paths.
   Run the gate immediately. If `compile` fails because of a lint warning that comes from the new jars,
   **stop and report**; do not change `-Xlint:all -Werror` (constitution Principle X). Commit
   `build(US-04): add springdoc-openapi for the catalog documentation`.
-- [ ] T017 [US4] Document the API with OpenAPI:
+- [X] T017 [US4] Document the API with OpenAPI:
   - Create `M/infrastructure/config/OpenApiConfiguration.java`: an `OpenAPI` bean with title
     `ecommerce-inventory catalog`, the version from the build if available (otherwise `v1`), and a
     description saying the API is public, read-only, needs no authentication, and returns a stock
