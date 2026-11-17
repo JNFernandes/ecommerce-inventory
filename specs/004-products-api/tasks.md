@@ -91,7 +91,7 @@ stories use.
   checks `ck_stock_items_available_not_negative`, so it still fails on that constraint and not on
   `NOT NULL`. Grep `src/test` for any other `insert into stock_items` and give each a name.
   Gate. Commit `feat(US-04): add a non-null name to stock items`.
-- [ ] T002 Prove the backfill. Create `T/infrastructure/persistence/ProductNameMigrationIT.java`. It is
+- [X] T002 Prove the backfill. Create `T/infrastructure/persistence/ProductNameMigrationIT.java`. It is
   plain JUnit, with no Spring context. Use the database from
   `PostgresTestContainer.isolatedDatabase("product_name_migration")` with the container's credentials,
   and run Flyway with `Flyway.configure().dataSource(url, user, password).locations("classpath:db/migration")`:
