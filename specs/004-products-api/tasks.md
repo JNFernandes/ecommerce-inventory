@@ -464,7 +464,7 @@ answer; the OpenAPI document lists only the two `/products` paths.
   `availableQuantity` with Jackson's `ObjectMapper`). Changing the base class keeps a single shared
   context. Gate: all existing component tests must stay green. Commit
   `test(US-04): run component tests on a real HTTP port`.
-- [ ] T019 [US1] Create `T/component/ProductCatalogComponentIT.java` (extends `AbstractComponentIT`).
+- [X] T019 [US1] Create `T/component/ProductCatalogComponentIT.java` (extends `AbstractComponentIT`).
   Test "should show reserved stock as unavailable and released stock as available again":
   1. `stock.given("SKU-CAT", "Catalog Item", 10)`;
   2. `GET /products/SKU-CAT` → 10 with the name;
