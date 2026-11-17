@@ -44,4 +44,16 @@ public class ProductQueryService {
         }
         return new ProductPage(catalog.findPage(limit, offset), catalog.count(), limit, offset);
     }
+
+    /**
+     * Reads one product by its exact id (case-sensitive), read-only and without locks.
+     *
+     * @param productId product id as requested
+     * @return the product
+     * @throws ProductNotFoundException if no product has that id
+     */
+    @Transactional(readOnly = true)
+    public ProductView get(String productId) {
+        return catalog.findById(productId).orElseThrow(() -> new ProductNotFoundException(productId));
+    }
 }

@@ -218,7 +218,7 @@ problem body.
     offset", each with `verifyNoInteractions(reader)`.
 
   Gate. Commit `feat(US-04): add the product list query`.
-- [ ] T007 [US2] Implement `ProductQueryService.get`. In `M/application/ProductQueryService.java`, add
+- [X] T007 [US2] Implement `ProductQueryService.get`. In `M/application/ProductQueryService.java`, add
   `@Transactional(readOnly = true) public ProductView get(String productId)`: return
   `reader.findById(productId).orElseThrow(() -> new ProductNotFoundException(productId))`. In
   `T/application/ProductQueryServiceTest.java`, add:

@@ -8,6 +8,7 @@ import static org.mockito.Mockito.when;
 
 import com.ecommerce.inventory.application.port.ProductCatalogReader;
 import java.util.List;
+import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -75,5 +76,25 @@ class ProductQueryServiceTest {
         assertThatThrownBy(() -> service.list(limit, offset)).isInstanceOf(IllegalArgumentException.class);
 
         verifyNoInteractions(catalog);
+    }
+
+    @Test
+    @DisplayName("should return the product when it exists")
+    void shouldReturnProduct() {
+        when(catalog.findById("SKU-001")).thenReturn(Optional.of(MOUSE));
+
+        assertThat(service.get("SKU-001")).isEqualTo(MOUSE);
+    }
+
+    @Test
+    @DisplayName("should throw ProductNotFoundException naming the id when the product is unknown")
+    void shouldThrowForUnknownProduct() {
+        when(catalog.findById("SKU-999")).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.get("SKU-999"))
+                .isInstanceOfSatisfying(
+                        ProductNotFoundException.class,
+                        e -> assertThat(e.productId()).isEqualTo("SKU-999"))
+                .hasMessage("Product SKU-999 not found");
     }
 }
