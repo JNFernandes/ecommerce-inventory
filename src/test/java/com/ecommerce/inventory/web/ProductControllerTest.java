@@ -1,12 +1,16 @@
 package com.ecommerce.inventory.web;
 
 import static org.hamcrest.Matchers.containsInAnyOrder;
+import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.hasSize;
+import static org.hamcrest.Matchers.not;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.request;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -21,6 +25,8 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
@@ -187,6 +193,55 @@ class ProductControllerTest {
                 .andExpect(jsonPath("$.errors[0].message").value(message));
 
         verifyNoInteractions(service);
+    }
+
+    @ParameterizedTest(name = "{0} {1}")
+    @CsvSource({
+        "POST, /products",
+        "PUT, /products",
+        "PATCH, /products",
+        "DELETE, /products",
+        "POST, /products/SKU-001",
+        "PUT, /products/SKU-001",
+        "PATCH, /products/SKU-001",
+        "DELETE, /products/SKU-001"
+    })
+    @DisplayName("should refuse a write method with 405 and change nothing")
+    void shouldRefuseWriteMethods(String method, String path) throws Exception {
+        mvc.perform(request(HttpMethod.valueOf(method), path))
+                .andExpect(status().isMethodNotAllowed())
+                .andExpect(header().string(HttpHeaders.ALLOW, containsString("GET")))
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.status").value(405));
+
+        verifyNoInteractions(service);
+    }
+
+    @Test
+    @DisplayName("should answer 404 problem details for an unknown path")
+    void shouldAnswerNotFoundForUnknownPath() throws Exception {
+        mvc.perform(get("/products/SKU-001/reservations"))
+                .andExpect(status().isNotFound())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.status").value(404));
+
+        verifyNoInteractions(service);
+    }
+
+    @Test
+    @DisplayName("should answer 500 without internal details")
+    void shouldHideInternalErrors() throws Exception {
+        when(service.get("SKU-001")).thenThrow(new IllegalStateException("SQL select * from secret"));
+
+        mvc.perform(get("/products/SKU-001"))
+                .andExpect(status().isInternalServerError())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.status").value(500))
+                .andExpect(jsonPath("$.title").value("Internal error"))
+                .andExpect(jsonPath("$.detail").value("The request could not be processed."))
+                .andExpect(content().string(not(containsString("SQL"))))
+                .andExpect(content().string(not(containsString("secret"))))
+                .andExpect(content().string(not(containsString("Exception"))));
     }
 
     @Test

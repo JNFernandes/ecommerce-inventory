@@ -2,7 +2,10 @@ package com.ecommerce.inventory.web;
 
 import com.ecommerce.inventory.application.ProductNotFoundException;
 import com.ecommerce.inventory.web.dto.ParameterError;
+import jakarta.servlet.http.HttpServletRequest;
 import java.util.List;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.TypeMismatchException;
 import org.springframework.context.MessageSourceResolvable;
 import org.springframework.http.HttpHeaders;
@@ -29,6 +32,8 @@ import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExcep
 @RestControllerAdvice
 public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
 
+    private static final Logger LOG = LoggerFactory.getLogger(ApiExceptionHandler.class);
+
     /** Title of every {@code 400}. */
     static final String INVALID_PARAMETERS_TITLE = "Invalid request parameters";
 
@@ -47,6 +52,23 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
                 HttpStatus.NOT_FOUND, "Product " + exception.productId() + " not found.");
         problem.setTitle("Product not found");
         problem.setProperty("productId", exception.productId());
+        return problem;
+    }
+
+    /**
+     * Anything unexpected (for example the database is unreachable): {@code 500} with a fixed, generic
+     * detail. The cause is logged with the request path and never written to the response.
+     *
+     * @param exception the unexpected failure
+     * @param request the current request
+     * @return the problem detail
+     */
+    @ExceptionHandler(Exception.class)
+    public ProblemDetail unexpected(Exception exception, HttpServletRequest request) {
+        LOG.error("Unexpected error while serving {} {}", request.getMethod(), request.getRequestURI(), exception);
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(
+                HttpStatus.INTERNAL_SERVER_ERROR, "The request could not be processed.");
+        problem.setTitle("Internal error");
         return problem;
     }
 

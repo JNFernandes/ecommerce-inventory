@@ -325,7 +325,7 @@ generic `500`.
   pick it up), add "should reject an empty limit" (`limit=`), "should reject a repeated limit"
   (`limit=1&limit=2`), "should reject an empty offset" and "should ignore unknown query parameters"
   (`foo=bar` → 200). Gate. Commit `feat(US-04): reject empty or repeated paging parameters`.
-- [ ] T012 [US3] Write methods, unknown paths and unexpected errors. In
+- [X] T012 [US3] Write methods, unknown paths and unexpected errors. In
   `M/web/ApiExceptionHandler.java`, add `@ExceptionHandler(Exception.class)`: log at ERROR with the
   request path and the exception, and return a `ProblemDetail` with status 500, title
   `Internal error` and detail `The request could not be processed.`. Never include the exception
