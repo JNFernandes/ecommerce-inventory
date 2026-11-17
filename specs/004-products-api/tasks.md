@@ -455,7 +455,7 @@ answer; the OpenAPI document lists only the two `/products` paths.
 
 ## Phase 6: End-to-end (component)
 
-- [ ] T018 [US1] Make component tests call the real HTTP port. In
+- [X] T018 [US1] Make component tests call the real HTTP port. In
   `T/support/AbstractComponentIT.java`, set
   `webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT` on the existing `@SpringBootTest`,
   autowire `TestRestTemplate`, and add helpers

@@ -7,12 +7,17 @@ import com.ecommerce.inventory.application.OutboundRetryService;
 import com.ecommerce.inventory.application.ReleaseStockService;
 import com.ecommerce.inventory.application.ReserveStockService;
 import com.ecommerce.inventory.application.port.OutboundMessagePublisher;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Duration;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.web.client.TestRestTemplate;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.kafka.config.KafkaListenerEndpointRegistry;
 import org.springframework.kafka.listener.MessageListenerContainer;
@@ -28,9 +33,11 @@ import org.testcontainers.kafka.ConfluentKafkaContainer;
  *
  * <p>Every spy and property override lives here so all component tests share one Spring context. A
  * second context would start a second listener in the same consumer group and steal messages.
- * Inbound retries are shortened (2 retries, 50 ms) to keep failure tests fast.
+ * Inbound retries are shortened (2 retries, 50 ms) to keep failure tests fast. The server listens on a
+ * random port so tests can call the read-only catalog over real HTTP (US-04).
  */
 @SpringBootTest(
+        webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
         properties = {
             "inventory.kafka.consumer-retry.max-retries=2",
             "inventory.kafka.consumer-retry.initial-interval=50ms",
@@ -64,6 +71,11 @@ public abstract class AbstractComponentIT {
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    private TestRestTemplate http;
+
+    private final ObjectMapper json = new ObjectMapper();
 
     @MockitoSpyBean
     private ReserveStockService reserveStockService;
@@ -234,5 +246,31 @@ public abstract class AbstractComponentIT {
      */
     protected OutboundRetryService outboundRetryService() {
         return outboundRetryService;
+    }
+
+    /**
+     * Calls the service over real HTTP.
+     *
+     * @param path path and query, for example {@code /products?limit=5}
+     * @return the response with its body as text
+     */
+    protected ResponseEntity<String> httpGet(String path) {
+        return http.getForEntity(path, String.class);
+    }
+
+    /**
+     * Reads a product's {@code availableQuantity} from {@code GET /products/{id}} over real HTTP.
+     *
+     * @param productId product id
+     * @return the available quantity the catalog reports
+     */
+    protected int availableQuantityFromApi(String productId) {
+        ResponseEntity<String> response = httpGet("/products/" + productId);
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        try {
+            return json.readTree(response.getBody()).path("availableQuantity").asInt();
+        } catch (JsonProcessingException e) {
+            throw new IllegalStateException("Invalid catalog response: " + response.getBody(), e);
+        }
     }
 }
