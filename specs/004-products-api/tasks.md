@@ -201,7 +201,7 @@ problem body.
     within 2 s (`assertTimeoutPreemptively`). Release the latch in `finally`.
 
   Gate. Commit `feat(US-04): read the product catalog without locks`.
-- [ ] T006 [US1] Implement `ProductQueryService.list`. Create `M/application/ProductQueryService.java`
+- [X] T006 [US1] Implement `ProductQueryService.list`. Create `M/application/ProductQueryService.java`
   (`@Service`, constructor `ProductQueryService(ProductCatalogReader reader)`) with
   `@Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ) public ProductPage list(int limit, int offset)`:
   - reject `limit < 1 || limit > ProductPage.MAX_LIMIT` or `offset < 0` with
