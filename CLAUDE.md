@@ -46,7 +46,9 @@ until all four pass. `verify` needs Docker running (Testcontainers).
 - Repositories / persistence (`infrastructure`): JPA entities are separate from domain objects and
   mapped explicitly. JPA entities never reach the domain.
 - HTTP surface (constitution Principle II, ADR 0007) is exactly: Actuator health, `GET /products`
-  (list with `availableQuantity`) and `GET /products/{id}`. **No endpoint creates, changes or
+  (list with `availableQuantity`), `GET /products/{id}`, and the springdoc docs `/v3/api-docs` and
+  `/swagger-ui.html` (+ `/v3/api-docs.yaml`, `/v3/api-docs/swagger-config`, viewer resources); Boot's
+  internal `/error` is not an API (constitution 1.1.2). **No endpoint creates, changes or
   deletes data**; every state change still arrives as a Kafka event. No GraphQL.
 - Controllers: I/O only, call exactly one application **query** service method. Response DTOs are
   immutable `record`s, separate from domain and JPA classes. The catalog query reads `stock_items`

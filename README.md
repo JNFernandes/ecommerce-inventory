@@ -38,6 +38,7 @@ by `orderId`. Delivery is at-least-once; consumers deduplicate by `eventId`.
 | `GET /actuator/health` | Health, readiness and liveness | implemented |
 | `GET /products` | Every product with its `availableQuantity` | planned (ADR 0007) |
 | `GET /products/{id}` | One product with its `availableQuantity`; `404` if unknown | planned (ADR 0007) |
+| `GET /swagger-ui.html`, `GET /v3/api-docs` | OpenAPI documentation of the catalog (viewer and JSON) | planned (ADR 0007) |
 
 The catalog reads `stock_items` without locks, so a quantity is a snapshot: placing an order can
 still be rejected. There are no write endpoints, and adding one needs a new ADR and a constitution
