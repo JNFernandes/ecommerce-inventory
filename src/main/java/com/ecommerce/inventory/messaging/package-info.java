@@ -1,5 +1,7 @@
 /**
- * Messaging layer: Kafka listeners (the service's only input).
+ * Messaging layer: Kafka listeners.
+ *
+ * <p>This is the only input that changes state; HTTP (package {@code web}) only reads the catalog.
  *
  * <p>Listeners deserialize each record into an immutable, Bean-Validation-annotated record DTO,
  * validate it and call exactly one application service method. They contain no business logic and

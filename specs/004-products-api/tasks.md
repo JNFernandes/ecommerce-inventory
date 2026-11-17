@@ -227,7 +227,7 @@ problem body.
     `productId()` and the message).
 
   Gate. Commit `feat(US-04): add the single product query`.
-- [ ] T008 [US1] Add the web layer for the list:
+- [X] T008 [US1] Add the web layer for the list:
   - Create `M/web/package-info.java` ("inbound HTTP adapter: read-only catalog, I/O only;
     constitution Principle II") and `M/web/dto/package-info.java`.
   - Create `M/web/dto/ProductResponse.java`, a record `(String id, String name, int availableQuantity)`
