@@ -135,7 +135,7 @@ stories use.
 
   Adapt the existing assertions to the new column. Gate. Commit
   `feat(US-04): name the local sample products`.
-- [ ] T004 [P] Add the application read model and port (data-model §3), all in `M/application/`:
+- [X] T004 [P] Add the application read model and port (data-model §3), all in `M/application/`:
   - `ProductView`: record `(String productId, String name, int availableQuantity)`. The compact
     constructor rejects a null or blank id or name, and a negative quantity, with
     `IllegalArgumentException`.
