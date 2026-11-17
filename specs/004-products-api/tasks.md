@@ -377,7 +377,7 @@ answer; the OpenAPI document lists only the two `/products` paths.
   - "should fail startup for a wildcard origin" (`*` and `https://*.example`).
 
   Gate. Commit `feat(US-04): read CORS origins from CORS_ALLOWED_ORIGINS`.
-- [ ] T014 [US4] Apply CORS to the catalog. Create `M/infrastructure/config/WebCorsConfiguration.java`,
+- [X] T014 [US4] Apply CORS to the catalog. Create `M/infrastructure/config/WebCorsConfiguration.java`,
   a `@Configuration` implementing `WebMvcConfigurer`. In `addCorsMappings`, only when the origins
   list is not empty: register `/products` and `/products/**` with `allowedOrigins(list)`,
   `allowedMethods("GET", "HEAD")`, `allowCredentials(false)` and `maxAge(1800)`.

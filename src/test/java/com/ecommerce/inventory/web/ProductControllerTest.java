@@ -8,6 +8,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.request;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
@@ -18,22 +19,29 @@ import com.ecommerce.inventory.application.ProductNotFoundException;
 import com.ecommerce.inventory.application.ProductPage;
 import com.ecommerce.inventory.application.ProductQueryService;
 import com.ecommerce.inventory.application.ProductView;
+import com.ecommerce.inventory.infrastructure.config.InventoryProperties;
 import java.util.List;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
+import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 /** The catalog HTTP contract (specs/004-products-api/contracts/products-api.md) through MockMvc. */
 @WebMvcTest(ProductController.class)
+@EnableConfigurationProperties(InventoryProperties.class)
+@TestPropertySource(properties = "inventory.http.cors.allowed-origins=" + ProductControllerTest.ALLOWED_ORIGIN)
 class ProductControllerTest {
+
+    static final String ALLOWED_ORIGIN = "http://localhost:5173";
 
     private static final ProductView MOUSE = new ProductView("SKU-001", "Wireless Mouse", 10);
     private static final ProductView WEBCAM = new ProductView("SKU-005", "Webcam HD", 0);
@@ -242,6 +250,49 @@ class ProductControllerTest {
                 .andExpect(content().string(not(containsString("SQL"))))
                 .andExpect(content().string(not(containsString("secret"))))
                 .andExpect(content().string(not(containsString("Exception"))));
+    }
+
+    @Test
+    @DisplayName("should allow a configured origin")
+    void shouldAllowConfiguredOrigin() throws Exception {
+        when(service.list(50, 0)).thenReturn(new ProductPage(List.of(), 0, 50, 0));
+
+        mvc.perform(get("/products").header(HttpHeaders.ORIGIN, ALLOWED_ORIGIN))
+                .andExpect(status().isOk())
+                .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, ALLOWED_ORIGIN));
+    }
+
+    @Test
+    @DisplayName("should refuse an origin that is not configured")
+    void shouldRefuseOtherOrigin() throws Exception {
+        mvc.perform(get("/products/SKU-001").header(HttpHeaders.ORIGIN, "http://evil.example"))
+                .andExpect(status().isForbidden())
+                .andExpect(header().doesNotExist(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN));
+
+        verifyNoInteractions(service);
+    }
+
+    @Test
+    @DisplayName("should answer a preflight from a configured origin")
+    void shouldAnswerPreflight() throws Exception {
+        mvc.perform(options("/products/SKU-001")
+                        .header(HttpHeaders.ORIGIN, ALLOWED_ORIGIN)
+                        .header(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "GET"))
+                .andExpect(status().isOk())
+                .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, ALLOWED_ORIGIN))
+                .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_METHODS, containsString("GET")))
+                .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_MAX_AGE, "1800"));
+
+        verifyNoInteractions(service);
+    }
+
+    @Test
+    @DisplayName("should refuse a preflight for a write method")
+    void shouldRefuseWritePreflight() throws Exception {
+        mvc.perform(options("/products")
+                        .header(HttpHeaders.ORIGIN, ALLOWED_ORIGIN)
+                        .header(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "POST"))
+                .andExpect(status().isForbidden());
     }
 
     @Test
