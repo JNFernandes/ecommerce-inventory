@@ -480,7 +480,7 @@ answer; the OpenAPI document lists only the two `/products` paths.
 
 ## Phase 7: Polish & Cross-Cutting Concerns
 
-- [ ] T020 [P] Update `README.md`:
+- [X] T020 [P] Update `README.md`:
   - **Intro**: "Status" adds US-04.
   - **HTTP API section**:
     - mark both endpoints and the docs endpoints *implemented*;

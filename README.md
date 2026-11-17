@@ -11,8 +11,9 @@ output is a Kafka event. Over HTTP the service offers only the actuator health e
 The rules the code must follow are in the [constitution](.specify/memory/constitution.md).
 
 > Status: **US-01 Reserve stock** ([spec](specs/001-reserve-stock/spec.md)), **US-02 Release
-> stock** ([spec](specs/002-release-stock/spec.md)) and **US-03 Outbound retry worker**
-> ([spec](specs/003-outbound-retry/spec.md)) are implemented.
+> stock** ([spec](specs/002-release-stock/spec.md)), **US-03 Outbound retry worker**
+> ([spec](specs/003-outbound-retry/spec.md)) and **US-04 Read-only products API**
+> ([spec](specs/004-products-api/spec.md)) are implemented.
 
 ## Events
 
@@ -33,17 +34,55 @@ by `orderId`. Delivery is at-least-once; consumers deduplicate by `eventId`.
 
 ## HTTP API
 
-| Method and path | Purpose | Status |
-|---|---|---|
-| `GET /actuator/health` | Health, readiness and liveness | implemented |
-| `GET /products` | Every product with its `availableQuantity` | planned (ADR 0007) |
-| `GET /products/{id}` | One product with its `availableQuantity`; `404` if unknown | planned (ADR 0007) |
-| `GET /swagger-ui.html`, `GET /v3/api-docs` | OpenAPI documentation of the catalog (viewer and JSON) | planned (ADR 0007) |
+A **public, read-only catalog** ([ADR 0007](docs/adr/0007-read-only-catalog-api.md),
+[contract](specs/004-products-api/contracts/products-api.md)). There is **no authentication**:
+anyone who can reach the port can read product names and available quantities. No endpoint creates,
+changes or deletes data (write methods answer `405`); adding one needs a new ADR and a constitution
+amendment.
 
-The catalog reads `stock_items` without locks, so a quantity is a snapshot: placing an order can
-still be rejected. There are no write endpoints, and adding one needs a new ADR and a constitution
-amendment. Browsers can call the API cross-origin only from the origins listed in
-`CORS_ALLOWED_ORIGINS`.
+| Method and path | Purpose |
+|---|---|
+| `GET /products?limit=&offset=` | Products in product id order with `availableQuantity`, one page at a time |
+| `GET /products/{id}` | One product; `404` if unknown (ids are matched exactly, case-sensitive) |
+| `GET /swagger-ui.html` | Swagger UI: every endpoint, parameter, field and status code |
+| `GET /v3/api-docs` | The OpenAPI 3 document (also `/v3/api-docs.yaml`) |
+| `GET /actuator/health` | Health, readiness and liveness |
+
+> **`availableQuantity` is a snapshot.** It is the stock saved by the reservation and release flows
+> (a reserved unit is no longer available), read without locks so it never slows reservations. It
+> can change right after you read it: the **authoritative check happens when the order is
+> reserved**, so an order for a product shown as available can still be rejected.
+
+```bash
+curl -s http://localhost:8081/products
+# {"items":[{"id":"SKU-001","name":"Wireless Mouse","availableQuantity":10}, ...],
+#  "total":5,"limit":50,"offset":0}
+
+curl -s "http://localhost:8081/products?limit=2&offset=3"
+# {"items":[{"id":"SKU-004","name":"27-inch Monitor","availableQuantity":5},
+#           {"id":"SKU-005","name":"Webcam HD","availableQuantity":0}],"total":5,"limit":2,"offset":3}
+
+curl -s http://localhost:8081/products/SKU-003
+# {"id":"SKU-003","name":"USB-C Hub","availableQuantity":100}
+
+curl -s http://localhost:8081/products/SKU-999
+# 404 {"type":"about:blank","title":"Product not found","status":404,
+#      "detail":"Product SKU-999 not found.","instance":"/products/SKU-999","productId":"SKU-999"}
+
+curl -s "http://localhost:8081/products?limit=201"
+# 400 {"title":"Invalid request parameters","status":400, ...,
+#      "errors":[{"parameter":"limit","rejectedValue":"201","message":"must be less than or equal to 200"}]}
+```
+
+- `limit`: 1 to 200, default 50. `offset`: 0 or more, default 0. An `offset` past the end returns
+  an empty `items` list with the real `total`. Products with 0 available are listed.
+- Errors are RFC 9457 problem details (`application/problem+json`). A `limit` or `offset` that is
+  out of range, not a whole number, empty or repeated is a `400` listing each invalid parameter in
+  `errors`; bad input never causes a `5xx`. A `500` carries only a generic message.
+- **CORS**: browsers may call the catalog cross-origin only from the origins in
+  `CORS_ALLOWED_ORIGINS` (comma separated, for example `http://localhost:5173`), and only with `GET`.
+  Empty (the default) means no cross-origin access; wildcards are refused at startup.
+- The catalog needs only PostgreSQL: it keeps working while Kafka is down.
 
 ## How a reservation works
 
@@ -133,7 +172,9 @@ where id = '<row id>';
    ./mvnw spring-boot:run          # Windows: .\mvnw.cmd spring-boot:run
    ```
 
-3. Check it: `curl http://localhost:8081/actuator/health` → `{"status":"UP",...}`.
+3. Check it: `curl http://localhost:8081/actuator/health` → `{"status":"UP",...}`, then
+   `curl http://localhost:8081/products` for the catalog, or open
+   http://localhost:8081/swagger-ui.html.
 
 Flyway applies the migrations in `src/main/resources/db/migration` at startup. The service starts
 and reports healthy even when Kafka is down: listener containers are started in the background
@@ -142,15 +183,19 @@ once the application is ready and keep retrying the connection.
 ### Sample products (local profile only)
 
 `./mvnw spring-boot:run` seeds these products through `db/local/R__seed_local_stock.sql`. Existing
-rows are never reset or duplicated. Tests, the Docker image and production never load them.
+rows are never reset or duplicated: the seed only (re)sets their names, never their quantities.
+Tests, the Docker image and production never load them.
 
-| Product id | Available |
-|---|---|
-| `SKU-001` | 10 |
-| `SKU-002` | 25 |
-| `SKU-003` | 100 |
-| `SKU-004` | 5 |
-| `SKU-005` | 0 |
+| Product id | Name | Available (first seed) |
+|---|---|---|
+| `SKU-001` | Wireless Mouse | 10 |
+| `SKU-002` | Mechanical Keyboard | 25 |
+| `SKU-003` | USB-C Hub | 100 |
+| `SKU-004` | 27-inch Monitor | 5 |
+| `SKU-005` | Webcam HD | 0 |
+
+Products that existed before names were introduced (`V5__product_name.sql`) are named after their
+product id until something gives them a real name.
 
 ### Try it
 
@@ -212,8 +257,8 @@ Every setting comes from an environment variable; the defaults match ecommerce-i
 | `OUTBOUND_RETRY_BASE_DELAY` | `30s` | Wait after the first failed attempt |
 | `OUTBOUND_RETRY_MULTIPLIER` | `2.0` | Factor applied to the wait after each further failure (≥ 1.0) |
 | `OUTBOUND_RETRY_MAX_DELAY` | `1h` | Longest wait between attempts (≥ base delay) |
-| `SERVER_PORT` | `8081` (`8080` in the Docker image) | HTTP port (health and catalog); 8080 is used by kafka-ui locally |
-| `CORS_ALLOWED_ORIGINS` | empty | Comma-separated origins allowed to call the catalog from a browser (e.g. `http://localhost:5173`); empty means no cross-origin access. Takes effect once the catalog API is implemented |
+| `SERVER_PORT` | `8081` (`8080` in the Docker image) | HTTP port (catalog, docs, health); 8080 is used by kafka-ui locally |
+| `CORS_ALLOWED_ORIGINS` | empty | Comma-separated origins allowed to call the catalog from a browser (e.g. `http://localhost:5173`); empty means no cross-origin access; wildcards stop the service at startup |
 
 Tuning without environment variables (`application.yml`, `inventory.*`): inbound retries
 (`consumer-retry`: 3 retries, 1 s → 10 s), publish timeout (15 s), first outbound retry delay (30 s)
@@ -223,7 +268,7 @@ and lock timeout (5 s, for stock rows and the per-order lock).
 
 | Table | Holds |
 |---|---|
-| `stock_items` | Available quantity per product (never negative) |
+| `stock_items` | Name and available quantity per product (quantity never negative, name never blank); the catalog reads it without locks |
 | `reservations`, `reservation_items` | One reservation per order: status (`RESERVED`, `REJECTED`, `RELEASED`), consolidated items, failing items when rejected, `released_at` |
 | `cancellation_markers` | Orders cancelled before Inventory saw their placement (the later placement reserves nothing) |
 | `outcome_messages` | The exact messages published for each reservation (reserve and release), for republishing |
@@ -244,6 +289,10 @@ The image runs as a non-root user and has a `HEALTHCHECK` on `/actuator/health`.
 `localhost:9092` to host clients, so a container that needs Kafka must join the ecommerce-infra
 compose network and use `KAFKA_BOOTSTRAP_SERVERS=kafka:29092`.
 
+When Inventory is added to the ecommerce-infra compose, publish container port `8080` on host port
+`8081` (kafka-ui keeps 8080) and set `CORS_ALLOWED_ORIGINS` to the frontend origin, for example
+`http://localhost:5173`.
+
 ## Quality gate
 
 Run after every task, in this order (constitution Principle X). All four must pass before a commit.
@@ -261,8 +310,9 @@ On Windows use `.\mvnw.cmd` with the same arguments. `verify` needs Docker runni
 - **Unit tests** (`*Test`, Surefire): domain and application in isolation.
 - **Integration tests** (`*IT`, Failsafe): persistence adapters, migrations, constraints and
   concurrency on a real PostgreSQL.
-- **Component tests** (`component/*IT`): the whole service on real PostgreSQL and Kafka; other
-  services are simulated by producing their events.
+- **Web tests** (`web/*Test`, `@WebMvcTest`): the HTTP contract of the catalog through MockMvc.
+- **Component tests** (`component/*IT`): the whole service on real PostgreSQL and Kafka, on a real
+  HTTP port; other services are simulated by producing their events.
 - **Coverage**: JaCoCo requires at least 80% line coverage in every package under `domain` and
   `application`. The report is in `target/site/jacoco/index.html`.
 
@@ -272,12 +322,15 @@ On Windows use `.\mvnw.cmd` with the same arguments. `verify` needs Docker runni
 src/main/java/com/ecommerce/inventory/
 ├── InventoryApplication.java   Spring Boot entry point
 ├── messaging/                  OrderPlacedListener, OrderCancelledListener, StrictJsonParser, inbound DTOs
+├── web/                        ProductController (read-only catalog), ApiExceptionHandler (problem
+│                               details), QueryParameterGuard, response records in web/dto
 ├── application/                ReserveStockService, ReleaseStockService, OutcomePublisher,
-│                               OutboundRetryService + OutboundRetryPolicy, ports (OrderLock, …)
+│                               OutboundRetryService + OutboundRetryPolicy, ProductQueryService +
+│                               ProductView/ProductPage, ports (OrderLock, ProductCatalogReader, …)
 ├── domain/                     StockItem and Reservation aggregates, value objects, domain events;
 │                               plain Java, no Spring/JPA/Kafka
 └── infrastructure/
-    ├── config/                 Typed inventory.* properties, clock, policies
+    ├── config/                 Typed inventory.* properties, clock, policies, CORS, OpenAPI
     ├── persistence/            JPA entities, adapters for the domain and application ports
     ├── scheduling/             OutboundRetryScheduler (retry worker schedule and shutdown)
     └── kafka/                  Publisher, message factory and JSON shapes, error handler,
@@ -285,7 +338,8 @@ src/main/java/com/ecommerce/inventory/
 src/main/resources/
 ├── application.yml             Configuration (environment variables with local defaults)
 ├── application-local.yml       Local profile: adds the sample products
-├── db/migration/               Flyway migrations (V1 baseline, V2 reserve, V3 release, V4 retry)
+├── db/migration/               Flyway migrations (V1 baseline, V2 reserve, V3 release, V4 retry,
+│                               V5 product names)
 └── db/local/                   Local-only seed (R__seed_local_stock.sql)
 src/test/java/                  *Test (unit) and *IT (integration/component) tests
 docs/adr/                       Architecture Decision Records
