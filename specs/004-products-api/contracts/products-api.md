@@ -84,7 +84,7 @@ body is the server's default error body, not a problem detail.
 | Status | When | Body |
 |---|---|---|
 | 404 | Any path outside the documented ones | problem detail, `title` `Not Found` |
-| 405 | `POST`, `PUT`, `PATCH`, `DELETE` on `/products` or `/products/{id}` | problem detail; `Allow: GET,HEAD,OPTIONS` |
+| 405 | `POST`, `PUT`, `PATCH`, `DELETE` on `/products` or `/products/{id}` | problem detail; `Allow: GET` (HEAD and OPTIONS are still answered) |
 | 500 | Unexpected failure (for example, the database is unreachable) | problem detail, `title` `Internal error`, fixed generic `detail`; never a stack trace, SQL or class name |
 
 Invalid client input never produces a `5xx`.

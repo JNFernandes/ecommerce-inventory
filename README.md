@@ -289,9 +289,10 @@ The image runs as a non-root user and has a `HEALTHCHECK` on `/actuator/health`.
 `localhost:9092` to host clients, so a container that needs Kafka must join the ecommerce-infra
 compose network and use `KAFKA_BOOTSTRAP_SERVERS=kafka:29092`.
 
-When Inventory is added to the ecommerce-infra compose, publish container port `8080` on host port
-`8081` (kafka-ui keeps 8080) and set `CORS_ALLOWED_ORIGINS` to the frontend origin, for example
-`http://localhost:5173`.
+The ecommerce-infra compose (`inventory` service, profile `apps`) already publishes container port
+`8080` on host port `8081` (kafka-ui keeps 8080). To let a browser frontend call the catalog, add
+`CORS_ALLOWED_ORIGINS` with the frontend origin (for example `http://localhost:5173`) to that
+service's `environment`.
 
 ## Quality gate
 

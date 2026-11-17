@@ -511,7 +511,7 @@ answer; the OpenAPI document lists only the two `/products` paths.
   - Note "no class-level `@Validated` on controllers" (research R4).
 
   Gate. Commit `docs(US-04): update CLAUDE.md for the products API`.
-- [ ] T022 Run every scenario of `specs/004-products-api/quickstart.md` against ecommerce-infra.
+- [X] T022 Run every scenario of `specs/004-products-api/quickstart.md` against ecommerce-infra.
   Clear `CORS_ALLOWED_ORIGINS` from the shell (scenario 10) before running the gate. Record
   the result and the date at the end of `specs/004-products-api/quickstart.md` ("Validation
   2026-MM-DD: scenarios 1–10 passed" or the failures). Mark `specs/004-products-api/spec.md` Status

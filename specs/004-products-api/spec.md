@@ -4,7 +4,7 @@
 
 **Created**: 2026-11-17
 
-**Status**: Draft
+**Status**: Implemented
 
 **Input**: User description: "US-04: Read-only products API with available stock. Inventory exposes
 a read-only catalog so that clients (the future web frontend) can show products and how many units
